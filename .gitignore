@@ -1,3 +1,10 @@
+node_modules/
+.next/
+data/*.sqlite
+data/*.sqlite-*
+data/*.xlsx
+tsconfig.tsbuildinfo
+
 # v0 sandbox internal files
 __v0_runtime_loader.js
 __v0_devtools.tsx

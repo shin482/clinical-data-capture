@@ -271,7 +271,12 @@ export default function EdcWorkspace() {
   )
 
   const handleNavClick = async (label: string) => {
-    if ((label === 'Rule Master' || label === 'Audit Trail') && !isAdmin) {
+    if (label === 'Rule Master') {
+      setActive('Rule Master')
+      return
+    }
+
+    if (label === 'Audit Trail' && !isAdmin) {
       const password = window.prompt('관리자 비밀번호를 입력하세요.')
       if (!password) return
 
@@ -358,7 +363,7 @@ export default function EdcWorkspace() {
     ) : active === 'Queries' ? (
       <Queries queries={queries} />
     ) : active === 'Rule Master' ? (
-      <Rules rules={rules} refresh={refreshRules} notify={notify} />
+      isAdmin ? <Rules rules={rules} refresh={refreshRules} notify={notify} /> : <RuleMasterLogin onSuccess={() => { setIsAdmin(true); setActive('Rule Master') }} />
     ) : active === 'Export' ? (
       <Export subject={subject} subjects={subjects} />
     ) : active === 'Audit Trail' ? (
@@ -653,14 +658,64 @@ function Detail({
   }
 
   const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>, key: string) => {
-    if (event.key !== 'Enter' && event.key !== 'Tab') return
-
-    event.preventDefault()
     const root = event.currentTarget.closest('table')
-    const inputs = Array.from(root?.querySelectorAll<HTMLInputElement>('input[data-cell-key]') ?? [])
-    const currentIndex = inputs.findIndex((input) => input.dataset.cellKey === key)
-    const target = inputs[currentIndex + 1] || inputs[0]
-    if (target) target.focus()
+    if (!root) return
+
+    const currentInput = event.currentTarget
+    const currentRow = currentInput.closest('tr')
+    if (!currentRow) return
+
+    const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>('tbody tr'))
+    const rowInputs = Array.from(currentRow.querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
+    const currentCol = rowInputs.findIndex((input) => input === currentInput)
+    const rowIndex = rows.findIndex((row) => row === currentRow)
+
+    if (event.key === 'Tab') {
+      event.preventDefault()
+
+      const targetInputs = Array.from(currentRow.querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
+      const targetIndex = event.shiftKey ? currentCol - 1 : currentCol + 1
+      const target = targetInputs[targetIndex]
+
+      if (target) {
+        target.focus()
+        target.select?.()
+        return
+      }
+
+      if (event.shiftKey && rowIndex > 0) {
+        const previousRowInputs = Array.from(rows[rowIndex - 1].querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
+        const fallback = previousRowInputs.at(-1)
+        if (fallback) {
+          fallback.focus()
+          fallback.select?.()
+        }
+      } else if (!event.shiftKey && rowIndex < rows.length - 1) {
+        const nextRowInputs = Array.from(rows[rowIndex + 1].querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
+        const fallback = nextRowInputs[0]
+        if (fallback) {
+          fallback.focus()
+          fallback.select?.()
+        }
+      }
+
+      return
+    }
+
+    if (event.key === 'Enter') {
+      const direction = event.shiftKey ? -1 : 1
+      const nextRow = rows[rowIndex + direction]
+      if (!nextRow) return
+
+      event.preventDefault()
+      const nextInputs = Array.from(nextRow.querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
+      const target = nextInputs[currentCol]
+
+      if (target) {
+        target.focus()
+        target.select?.()
+      }
+    }
   }
 
   return (
@@ -731,8 +786,8 @@ function Detail({
               return (
                 <tr key={rule.variableKey}>
                   <td>
-                    <strong>{rule.variableKey}</strong>
-                    <small>{rule.label}</small>
+                    <strong className="variable-main">{rule.variableKey}</strong>
+                    <small className="variable-subtitle">{rule.label}</small>
                   </td>
                   <td>{rule.inputGuide || '—'}</td>
                   <td>{rule.emrLocation || '—'}</td>
@@ -1106,6 +1161,80 @@ function Export({ subject, subjects }: { subject: string; subjects: Subject[] })
           <a className="primary-btn" href={exportQuery}>
             <Download size={15} /> Download .xlsx
           </a>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function RuleMasterLogin({ onSuccess }: { onSuccess: () => void }) {
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!password.trim()) {
+      setError('비밀번호를 입력하세요.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await fetch('/api/admin/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        setError(data.error || '관리자 인증에 실패했습니다.')
+        return
+      }
+
+      onSuccess()
+    } catch {
+      setError('인증 요청 중 오류가 발생했습니다.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="content">
+      <section className="panel rule-master-login-panel">
+        <div className="rule-master-login-card">
+          <div className="rule-master-login-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+
+          <h2>Rule Master</h2>
+          <p>Administrator Access</p>
+
+          <form className="rule-master-login-form" onSubmit={handleSubmit}>
+            <label className="rule-master-login-label">
+              비밀번호 / Password
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Enter password"
+                autoFocus
+              />
+            </label>
+
+            {error && <div className="rule-master-login-error">{error}</div>}
+
+            <button type="submit" className="primary-btn rule-master-login-button" disabled={loading}>
+              {loading ? '확인 중...' : '확인'}
+            </button>
+          </form>
         </div>
       </section>
     </div>

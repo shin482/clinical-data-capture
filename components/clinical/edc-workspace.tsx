@@ -11,6 +11,8 @@ import { appConfig } from '@/lib/app-config'
 import { isCollectedAtVisit } from '@/lib/visit-rules'
 import { HelpModal } from './help-modal'
 import { SummaryCard } from './summary-card'
+import { formatDateTime, timestampMillis, localDateBoundary } from '@/lib/date-time'
+import { DataEntryProgress } from './data-entry-progress'
 import { CrfField } from './crf-field'
 type SaveStatus = 'saving' | 'saved' | 'failed'
 
@@ -47,6 +49,7 @@ type QueryRow = {
   message: string
   current_value: string
   status: string
+  updated_at: string | null
   detected_at: string
   resolved_at: string | null
 }
@@ -116,20 +119,6 @@ function ruleFromApi(rule: any): Rule {
     inputGuide: rule.inputGuide || '',
     emrLocation: rule.emrLocation || '',
   }
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-
-  return new Intl.DateTimeFormat('ko-KR', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
 }
 
 export default function EdcWorkspace() {
@@ -216,6 +205,7 @@ export default function EdcWorkspace() {
       }
       setValues(restored)
       setVisits(data.visits)
+      setLastSaved(formatDateTime(data.savedAt))
       setDetailLoading(false)
     } catch {
       notify('Subject 데이터를 불러오지 못했습니다.')
@@ -272,7 +262,7 @@ export default function EdcWorkspace() {
             pendingSaves.current.delete(timerKey)
             failedSaves.current.delete(timerKey)
           }
-          if (selectedSubject.current === targetSubject) setLastSaved(new Date().toLocaleTimeString('ko-KR', { hour12: false }))
+          if (selectedSubject.current === targetSubject) setLastSaved(formatDateTime((await response.json()).savedAt))
         } catch {
           if (pendingSaves.current.get(timerKey) === revision) {
             pendingSaves.current.delete(timerKey)
@@ -509,30 +499,14 @@ function Dashboard({ subjects, queries, onOpen, onOpenQueries }: { subjects: Sub
           {actions.map((item) => (
             <button className="mini-row" key={item.subject_id} type="button" onClick={() => onOpen(item.subject_id)}>
               <strong>{item.subject_id}</strong>
-              <span>{item.updated_at}</span>
+              <span>{formatDateTime(item.updated_at)}</span>
               <StatusPill tone={item.open_queries ? 'warn' : 'good'}>{item.open_queries ? `Open Queries: ${item.open_queries}` : 'Up to date'}</StatusPill>
               <ChevronRight size={15} />
             </button>
           ))}
         </div>
       </section>
-      <section className="panel">
-        <div className="panel-head"><div><h2>Data Entry Progress</h2><p>Required entries by subject and visit</p></div></div>
-        <div className="subject-progress-list">
-          {!subjects.length && <p className="crf-empty">No subjects enrolled</p>}
-          {sortSubjectsNumerically(subjects).map((item) => <section className="subject-progress" key={item.subject_id} aria-label={`${item.subject_id} data entry progress`}>
-            <h3>{item.subject_id}</h3>
-            {allVisits.map((visit) => {
-              const { completed, total, percentage } = item.visit_progress[visit]
-              return <div className="visit-row entry-progress-row" key={visit}>
-                <span className="visit-label">{visit}</span>
-                <div className="bar" role="progressbar" aria-label={`${item.subject_id} ${visit} data entry completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${completed} / ${total} (${percentage}%)`}><span style={{ width: `${percentage}%` }} /></div>
-                <strong>{completed} / {total} ({percentage}%)</strong>
-              </div>
-            })}
-          </section>)}
-        </div>
-      </section>
+      <DataEntryProgress subjects={subjects} onOpen={onOpen} />
       </div>
     </div>
   )
@@ -585,7 +559,7 @@ function Subjects({ subjects, onOpen }: { subjects: Subject[]; onOpen: (id: stri
                     <strong className="subject-id">{item.subject_id}</strong>
                   </td>
                   <td>{item.open_queries || '—'}</td>
-                  <td className="muted">{item.updated_at}</td>
+                  <td className="muted">{formatDateTime(item.updated_at)}</td>
                   <td>
                     <ChevronRight size={16} className="muted" />
                   </td>
@@ -719,10 +693,10 @@ function Detail({
         </button>
       </div>
 
-      <div className="crf-toolbar">
-        <label className="field-label">Sort by<select value={sort} onChange={(e) => setSort(e.target.value)}><option value="default">Default</option><option value="asc">EMR Reference A to Z</option><option value="desc">EMR Reference Z to A</option></select></label>
-        <label className="field-label">Form<select value={form} onChange={(e) => setForm(e.target.value)}><option value="">All forms</option>{Array.from(new Set(rules.map((r) => r.section))).map((name) => <option key={name}>{name}</option>)}</select></label>
-        <label className="field-label">Visit<select value={visitFilter} onChange={(e) => setVisitFilter(e.target.value)}><option value="">All visits</option>{allVisits.map((v) => <option key={v}>{v}</option>)}</select></label>
+      <div className="crf-toolbar subject-filter-bar">
+        <label className="field-label filter-box">EMR 기준 정렬<select value={sort} onChange={(e) => setSort(e.target.value)}><option value="default">기본 순서</option><option value="asc">EMR Reference 오름차순</option><option value="desc">EMR Reference 내림차순</option></select></label>
+        <label className="field-label filter-box">항목 그룹<select value={form} onChange={(e) => setForm(e.target.value)}><option value="">전체 그룹</option>{Array.from(new Set(rules.map((r) => r.section))).map((name) => <option key={name}>{name}</option>)}</select></label>
+        <label className="field-label filter-box">방문 시점<select value={visitFilter} onChange={(e) => setVisitFilter(e.target.value)}><option value="">전체 방문</option>{allVisits.map((v) => <option key={v}>{v}</option>)}</select></label>
         <label className="check-control">
           <input type="checkbox" checked={queryOnly} onChange={(event) => setQueryOnly(event.target.checked)} />
           Query 있는 항목만 보기
@@ -801,7 +775,7 @@ function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects:
   const summary = useMemo(() => sortSubjectsNumerically(subjects.map((subject) => {
     const items = queries.filter((q) => q.subject_id === subject.subject_id)
     const open = getOpenQueryCount(items)
-    return { subject_id: subject.subject_id, total: items.length, open, closed: items.length - open, latestDate: items.map((q) => q.resolved_at || q.detected_at).sort().at(-1) || '', latestStatus: getSubjectQueryStatus(items) }
+    return { subject_id: subject.subject_id, total: items.length, open, closed: items.length - open, latestDate: items.map((q) => q.updated_at || q.resolved_at || q.detected_at).sort((a, b) => timestampMillis(a) - timestampMillis(b)).at(-1) || '', latestStatus: getSubjectQueryStatus(items) }
   })).filter((item) => statusFilter === 'All' || (statusFilter === 'Open' ? item.open > 0 : item.open === 0 && item.total > 0)), [queries, subjects, statusFilter])
 
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
@@ -874,7 +848,7 @@ function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects:
                   <td>
                     <StatusPill tone={query.status === 'OPEN' ? 'warn' : 'good'}>{query.status}</StatusPill>
                   </td>
-                  <td>{formatDateTime(query.resolved_at || query.detected_at)}</td>
+                  <td>{formatDateTime(query.updated_at || query.resolved_at || query.detected_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1190,8 +1164,8 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
   const loadAuditTrail = async (clear = false) => {
     const params = new URLSearchParams()
     if (filters.subjectId) params.set('subjectId', filters.subjectId)
-    if (filters.from) params.set('from', filters.from)
-    if (filters.to) params.set('to', filters.to)
+    if (filters.from) params.set('fromInstant', localDateBoundary(filters.from))
+    if (filters.to) params.set('toInstant', localDateBoundary(filters.to, true))
     if (filters.visit) params.set('visit', filters.visit)
     if (filters.variable) params.set('variable', filters.variable)
     if (filters.action) params.set('action', filters.action)

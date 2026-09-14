@@ -13,6 +13,8 @@ export function GET(request: NextRequest) {
   const action = params.get('action')?.trim()
   const from = params.get('from')?.trim()
   const to = params.get('to')?.trim()
+  const fromInstant = params.get('fromInstant')
+  const toInstant = params.get('toInstant')
 
   if (subjectId) {
     where.push('subject_id = ?')
@@ -33,16 +35,22 @@ export function GET(request: NextRequest) {
     where.push('action = ?')
     values.push(action)
   }
-  if (from) {
+  if (fromInstant) {
+    where.push('julianday(modified_at) >= julianday(?)')
+    values.push(fromInstant)
+  } else if (from) {
     where.push('DATE(modified_at) >= DATE(?)')
     values.push(from)
   }
-  if (to) {
+  if (toInstant) {
+    where.push('julianday(modified_at) < julianday(?)')
+    values.push(toInstant)
+  } else if (to) {
     where.push('DATE(modified_at) <= DATE(?)')
     values.push(to)
   }
 
-  const query = `SELECT * FROM audit_logs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY modified_at DESC`
+  const query = `SELECT * FROM audit_logs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY julianday(modified_at) DESC, id DESC`
   const rows = db().prepare(query).all(...values)
 
   return NextResponse.json(rows)

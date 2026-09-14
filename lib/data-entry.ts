@@ -7,6 +7,14 @@ export type EntryValue = { variableKey: string; value: string | number | boolean
 export type VisitCompletion = Record<Visit, boolean>
 export type VisitProgress = { completed: number; total: number; percentage: number; complete: boolean }
 
+export function getAggregateFieldProgress(subjects: { visit_progress: Record<Visit, VisitProgress> }[]) {
+  return Object.fromEntries(completionVisits.map((visit) => {
+    const completed = subjects.reduce((sum, subject) => sum + subject.visit_progress[visit].completed, 0)
+    const total = subjects.reduce((sum, subject) => sum + subject.visit_progress[visit].total, 0)
+    return [visit, { completed, total, percentage: total ? Math.round(completed / total * 100) : 0 }]
+  })) as Record<Visit, Pick<VisitProgress, 'completed' | 'total' | 'percentage'>>
+}
+
 export const hasEntryValue = (value: EntryValue['value']) => value !== null && value !== undefined && (typeof value !== 'string' || value.trim() !== '')
 
 // Blank-allowed, disabled, out-of-visit and inactive conditional fields do not

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import path from 'node:path'
 import fs from 'node:fs'
+import { getCurrentTimestamp } from '../date-time'
 import { migrateStudySchema } from './study-migration'
 
 export type VariableDefinition = {
@@ -53,13 +54,15 @@ const valueColumns = database.prepare('PRAGMA table_info(clinical_values)').all(
 if (!valueColumns.some((column) => column.name === 'missing_reason')) database.exec('ALTER TABLE clinical_values ADD COLUMN missing_reason TEXT')
 
 migrateStudySchema(database)
+const queryColumns = database.prepare('PRAGMA table_info(queries)').all() as { name: string }[]
+if (!queryColumns.some((column) => column.name === 'updated_at')) database.exec('ALTER TABLE queries ADD COLUMN updated_at TEXT')
 
 export function db() { return database }
 
 export function ensureSubject(subjectId: string) {
   const normalized = subjectId.trim()
   if (!normalized) throw new Error('Subject ID is required')
-  const subject = database.prepare('INSERT INTO subjects (subject_id) VALUES (?) ON CONFLICT(subject_id) DO UPDATE SET subject_id=excluded.subject_id RETURNING id, subject_id').get(normalized) as { id: number; subject_id: string }
+  const subject = database.prepare('INSERT INTO subjects (subject_id,created_at,updated_at) VALUES (?,?,?) ON CONFLICT(subject_id) DO UPDATE SET subject_id=excluded.subject_id RETURNING id, subject_id').get(normalized, getCurrentTimestamp(), getCurrentTimestamp()) as { id: number; subject_id: string }
   const insertVisit = database.prepare('INSERT INTO visits (subject_id, timepoint) VALUES (?, ?) ON CONFLICT(subject_id, timepoint) DO NOTHING')
   database.transaction(() => ['T1', 'T2', 'T3'].forEach((timepoint) => insertVisit.run(subject.id, timepoint)))()
   return subject

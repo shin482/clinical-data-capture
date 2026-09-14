@@ -30,7 +30,7 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
     <div className="panel-head"><div><h2 id="help-title">EDC Help</h2><p id="help-description">메뉴별 기능을 안내합니다.</p></div>
       <button autoFocus type="button" className="icon-btn" aria-label="Close Help" onClick={onClose}><X size={18} /></button>
     </div>
-    <dl className="help-guides">{guides.map((guide) => <div key={guide.name}><dt>{guide.name} {guide.admin && <span className="status-pill neutral">Admin only</span>}</dt><dd>{guide.description}</dd></div>)}</dl>
+    <dl className="help-guides">{guides.map((guide) => <div key={guide.name}><dt>{guide.name} {guide.admin && <span className="status-pill neutral">관리자 전용</span>}</dt><dd>{guide.description}</dd></div>)}</dl>
     <dl className="help-system"><div><dt>EDC Version</dt><dd>{appConfig.version}</dd></div><div><dt>Site</dt><dd>{appConfig.site}</dd></div></dl>
   </dialog>
 }

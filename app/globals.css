@@ -158,10 +158,6 @@ tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }
 
 .summary-card { text-align: left; justify-content: flex-start; align-items: stretch; }
 .summary-card .metric-value, .summary-card .eyebrow { text-align: left; }
-.subject-progress-list { max-height: 480px; overflow-y: auto; padding: 0 20px 16px; }
-.subject-progress { padding: 12px 0; border-top: 1px solid var(--border); }
-.subject-progress h3 { margin: 0 0 8px; color: #244252; font-size: 12px; }
-.subject-progress .visit-row { margin: 9px 0; }
 .not-collected { display: block; padding: 8px; color: #809098; font-size: 11px; }
 .top-actions { display: flex; align-items: center; gap: 14px; }
 .help-button:hover { background: #e1f3ef; color: #087f83; }
@@ -174,3 +170,15 @@ tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }
 .help-system { display: flex; flex-wrap: wrap; gap: 24px; margin: 0; padding: 16px 20px; border-top: 1px solid var(--border); background: #f4f8f8; }
 .help-system dt { color: #647b84; font-size: 11px; }
 .help-system dd { margin: 5px 0 0; font-size: 12px; }
+
+.progress-controls { display: flex; gap: 10px; padding: 0 20px 10px; align-items: center; }
+.subject-combobox { position: relative; flex: 1; min-width: 0; }
+.subject-combobox input { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
+.subject-options { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; max-height: 240px; overflow-y: auto; list-style: none; padding: 4px; margin: 4px 0; background: white; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px #19384422; }
+.subject-options button { width: 100%; border: 0; padding: 9px; background: transparent; text-align: left; color: inherit; }
+.subject-options .active-option, .subject-options [aria-selected="true"] { background: #e1f3ef; }
+.field-progress { margin: 16px 0; }
+.field-progress > div:first-child { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #41616d; }
+.subject-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.subject-filter-bar .filter-box { display: flex; flex-direction: column; gap: 6px; min-width: 170px; flex: 1 1 170px; margin: 0; padding: 10px 12px; background: white; border: 1px solid var(--border); border-radius: 5px; font-size: 11px; color: #647b84; }
+.subject-filter-bar .filter-box select { width: 100%; height: 32px; border: 0; background: white; color: var(--foreground); font-size: 12px; }

@@ -1,3 +1,4 @@
+import { getCurrentTimestamp } from '@/lib/date-time'
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { db } from '@/lib/db'
@@ -29,9 +30,10 @@ export async function GET(request: NextRequest) {
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(db().prepare('SELECT * FROM variable_definitions WHERE study_active=1 ORDER BY display_order').all()), 'Variable Dictionary')
   const output = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
   const filename = `${subjectId ? 'subject_' + subjectId.replace(/[^a-zA-Z0-9_-]/g, '_') : 'all_subjects'}_${visit || 'all_visits'}.xlsx`
+  const exportedAt = getCurrentTimestamp()
   db().transaction(() => {
-    db().prepare('INSERT INTO export_history(user_name,subject_id,visit,file_name) VALUES(?,?,?,?)').run('Minji Jung', subjectId, visit, filename)
-    db().prepare("INSERT INTO audit_logs(subject_id,timepoint,new_value,modified_by,action) VALUES(?,?,?,?, 'EXPORT')").run(subjectId, visit, filename, 'Minji Jung')
+    db().prepare('INSERT INTO export_history(user_name,subject_id,visit,file_name,exported_at) VALUES(?,?,?,?,?)').run('Minji Jung', subjectId, visit, filename, exportedAt)
+    db().prepare("INSERT INTO audit_logs(subject_id,timepoint,new_value,modified_by,modified_at,action) VALUES(?,?,?,?,?, 'EXPORT')").run(subjectId, visit, filename, 'Minji Jung', exportedAt)
   })()
   return new NextResponse(output, { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="${filename}"`, 'Cache-Control': 'no-store' } })
 }

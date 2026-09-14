@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowLeft, Check, ChevronDown, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, MoreHorizontal, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
 
-type Visit = 'T1' | 'T2' | 'T3'
+import { inputGuide, mockEmrReferences, sampleVisitNames, type MissingReason, type Visit } from '@/lib/crf-metadata'
+import { CrfField } from './crf-field'
+type SaveStatus = 'saving' | 'saved' | 'failed'
 
 type Rule = {
   variableKey: string
@@ -24,7 +26,7 @@ type Rule = {
 }
 
 type Subject = { subject_id: string; updated_at: string; open_queries: number }
-type VisitData = { id: number; timepoint: Visit; visitDate: string | null }
+type VisitData = { id: number; timepoint: Visit; visitDate: string | null; name?: string }
 type QueryRow = {
   subject_id: string
   timepoint: Visit
@@ -144,7 +146,16 @@ export default function EdcWorkspace() {
   const [values, setValues] = useState<Record<string, string>>({})
   const [visits, setVisits] = useState<VisitData[]>([])
   const [queries, setQueries] = useState<QueryRow[]>([])
-  const [saved, setSaved] = useState(true)
+  const [saved, setSaved] = useState<SaveStatus>('saved')
+  const [lastSaved, setLastSaved] = useState('')
+  const [missing, setMissing] = useState<Record<string, MissingReason | undefined>>({})
+  const pendingSaves = useRef(new Map<string, number>())
+  const failedSaves = useRef(new Set<string>())
+  const saveQueue = useRef<Promise<void>>(Promise.resolve())
+  const drafts = useRef(new Map<string, { value: string; missingReason?: MissingReason }>())
+  const [detailLoading, setDetailLoading] = useState(false)
+  const selectedSubject = useRef(subject)
+  selectedSubject.current = subject
   const [isAdmin, setIsAdmin] = useState(false)
   const timers = useRef<Record<string, number>>({})
 
@@ -184,7 +195,7 @@ export default function EdcWorkspace() {
 
   const loadSubjectDetail = async (targetSubject: string) => {
     if (!targetSubject) return
-
+    setDetailLoading(true)
     try {
       const response = await fetch(`/api/subjects/${encodeURIComponent(targetSubject)}`)
       if (!response.ok) {
@@ -194,14 +205,29 @@ export default function EdcWorkspace() {
 
       const data = await response.json()
       const restored: Record<string, string> = {}
+      const restoredMissing: Record<string, MissingReason> = {}
 
       data.values.forEach((item: any) => {
         const visit = data.visits.find((candidate: VisitData) => candidate.id === item.visitId)
-        if (visit) restored[`${item.variableKey}-${visit.timepoint}`] = item.value || ''
+        if (visit) {
+          restored[`${item.variableKey}-${visit.timepoint}`] = item.value ?? ''
+          if (item.missingReason) restoredMissing[`${item.variableKey}-${visit.timepoint}`] = item.missingReason
+        }
       })
 
+      if (selectedSubject.current !== targetSubject) return
+      for (const [key, draft] of drafts.current) {
+        const prefix = `${targetSubject}-`
+        if (key.startsWith(prefix)) {
+          restored[key.slice(prefix.length)] = draft.value
+          if (draft.missingReason) restoredMissing[key.slice(prefix.length)] = draft.missingReason
+          else delete restoredMissing[key.slice(prefix.length)]
+        }
+      }
       setValues(restored)
+      setMissing(restoredMissing)
       setVisits(data.visits)
+      setDetailLoading(false)
     } catch {
       notify('Subject 데이터를 불러오지 못했습니다.')
     }
@@ -219,42 +245,58 @@ export default function EdcWorkspace() {
       return
     }
 
+    selectedSubject.current = id
     setSubject(id)
+    setValues({})
+    setMissing({})
+    setVisits([])
+    setDetailLoading(true)
+    setLastSaved('')
+    setSaved([...failedSaves.current].some((key) => key.startsWith(`${id}-`)) ? 'failed' : [...pendingSaves.current.keys()].some((key) => key.startsWith(`${id}-`)) ? 'saving' : 'saved')
     setQueryOnly(false)
     setActive('Subject detail')
     await refreshSubjects()
-    await loadSubjectDetail(id)
   }
 
-  const update = (key: string, value: string) => {
+  const update = (key: string, value: string, missingReason?: MissingReason) => {
     setValues((current) => ({ ...current, [key]: value }))
-    setSaved(false)
-
+    setMissing((current) => ({ ...current, [key]: missingReason }))
+    setSaved('saving')
     const separator = key.lastIndexOf('-')
     const variableKey = key.slice(0, separator)
     const timepoint = key.slice(separator + 1)
+    const targetSubject = subject
     const timerKey = `${subject}-${key}`
-
+    drafts.current.set(timerKey, { value, missingReason })
+    const revision = (pendingSaves.current.get(timerKey) || 0) + 1
+    pendingSaves.current.set(timerKey, revision)
+    failedSaves.current.delete(timerKey)
     window.clearTimeout(timers.current[timerKey])
-    timers.current[timerKey] = window.setTimeout(async () => {
-      try {
-        const response = await fetch(`/api/subjects/${encodeURIComponent(subject)}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ variableKey, timepoint, value, modifiedBy: 'local-user' }),
-        })
-
-        if (!response.ok) {
-          throw new Error('save failed')
+    timers.current[timerKey] = window.setTimeout(() => {
+      saveQueue.current = saveQueue.current.then(async () => {
+        try {
+          const response = await fetch(`/api/subjects/${encodeURIComponent(targetSubject)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ variableKey, timepoint, value: missingReason ? null : value, missingReason: missingReason || null, modifiedBy: 'local-user' }),
+          })
+          if (!response.ok) throw new Error('save failed')
+          if (pendingSaves.current.get(timerKey) === revision) {
+            pendingSaves.current.delete(timerKey)
+            failedSaves.current.delete(timerKey)
+          }
+          if (selectedSubject.current === targetSubject) setLastSaved(new Date().toLocaleTimeString('ko-KR', { hour12: false }))
+        } catch {
+          if (pendingSaves.current.get(timerKey) === revision) {
+            pendingSaves.current.delete(timerKey)
+            failedSaves.current.add(timerKey)
+          }
         }
-
-        setSaved(true)
-        await refreshQueries()
-        await refreshSubjects()
-      } catch {
-        setSaved(false)
-        notify('저장 실패')
-      }
+        if (selectedSubject.current === targetSubject) {
+          const prefix = `${targetSubject}-`
+          setSaved([...failedSaves.current].some((key) => key.startsWith(prefix)) ? 'failed' : [...pendingSaves.current.keys()].some((key) => key.startsWith(prefix)) ? 'saving' : 'saved')
+        }
+        try { await refreshQueries(); await refreshSubjects() } catch { notify('목록 갱신 실패') }
+      })
     }, 400)
   }
 
@@ -355,6 +397,9 @@ export default function EdcWorkspace() {
         visits={visits}
         queries={subjectQueries}
         saved={saved}
+        lastSaved={lastSaved}
+        missing={missing}
+        loading={detailLoading}
         update={update}
         queryOnly={queryOnly}
         setQueryOnly={setQueryOnly}
@@ -630,6 +675,9 @@ function Detail({
   visits,
   queries,
   saved,
+  lastSaved,
+  missing,
+  loading,
   update,
   queryOnly,
   setQueryOnly,
@@ -640,83 +688,18 @@ function Detail({
   values: Record<string, string>
   visits: VisitData[]
   queries: QueryRow[]
-  saved: boolean
-  update: (key: string, value: string) => void
+  saved: SaveStatus
+  lastSaved: string
+  missing: Record<string, MissingReason | undefined>
+  loading: boolean
+  update: (key: string, value: string, missingReason?: MissingReason) => void
   queryOnly: boolean
   setQueryOnly: (value: boolean) => void
   onBack: () => void
 }) {
-  const [visitDates, setVisitDates] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    setVisitDates(Object.fromEntries(visits.map((visit) => [visit.timepoint, visit.visitDate || ''])))
-  }, [visits])
-
-  const saveDate = (visit: Visit, value: string) => {
-    setVisitDates((current) => ({ ...current, [visit]: value }))
-    update(`vdt-${visit}`, value)
-  }
-
-  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>, key: string) => {
-    const root = event.currentTarget.closest('table')
-    if (!root) return
-
-    const currentInput = event.currentTarget
-    const currentRow = currentInput.closest('tr')
-    if (!currentRow) return
-
-    const rows = Array.from(root.querySelectorAll<HTMLTableRowElement>('tbody tr'))
-    const rowInputs = Array.from(currentRow.querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
-    const currentCol = rowInputs.findIndex((input) => input === currentInput)
-    const rowIndex = rows.findIndex((row) => row === currentRow)
-
-    if (event.key === 'Tab') {
-      event.preventDefault()
-
-      const targetInputs = Array.from(currentRow.querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
-      const targetIndex = event.shiftKey ? currentCol - 1 : currentCol + 1
-      const target = targetInputs[targetIndex]
-
-      if (target) {
-        target.focus()
-        target.select?.()
-        return
-      }
-
-      if (event.shiftKey && rowIndex > 0) {
-        const previousRowInputs = Array.from(rows[rowIndex - 1].querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
-        const fallback = previousRowInputs.at(-1)
-        if (fallback) {
-          fallback.focus()
-          fallback.select?.()
-        }
-      } else if (!event.shiftKey && rowIndex < rows.length - 1) {
-        const nextRowInputs = Array.from(rows[rowIndex + 1].querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
-        const fallback = nextRowInputs[0]
-        if (fallback) {
-          fallback.focus()
-          fallback.select?.()
-        }
-      }
-
-      return
-    }
-
-    if (event.key === 'Enter') {
-      const direction = event.shiftKey ? -1 : 1
-      const nextRow = rows[rowIndex + direction]
-      if (!nextRow) return
-
-      event.preventDefault()
-      const nextInputs = Array.from(nextRow.querySelectorAll<HTMLInputElement>('input[data-cell-key]:not([disabled]):not([readonly])'))
-      const target = nextInputs[currentCol]
-
-      if (target) {
-        target.focus()
-        target.select?.()
-      }
-    }
-  }
+  const [showEmr, setShowEmr] = useState(true)
+  const visitDates = Object.fromEntries(allVisits.map((visit) => [visit, values[`vdt-${visit}`] ?? visits.find((item) => item.timepoint === visit)?.visitDate ?? '']))
+  const saveDate = (visit: Visit, value: string) => update(`vdt-${visit}`, value)
 
   return (
     <div className="detail-content">
@@ -734,8 +717,8 @@ function Detail({
         </div>
 
         <div className="detail-actions">
-          <span className={`save-state ${saved ? 'saved' : 'saving'}`}>
-            <span /> {saved ? 'Saved' : 'Saving...'}
+          <span role="status" aria-live="polite" className={`save-state ${saved}`}>
+            <span /> {saved === 'saved' ? 'Saved' : saved === 'saving' ? 'Saving...' : 'Save failed · 변경한 항목을 다시 입력해 주세요'}{lastSaved && ` · ${lastSaved}`}
           </span>
         </div>
       </div>
@@ -749,30 +732,33 @@ function Detail({
         {allVisits.map((visit) => (
           <div className="strip-visit" key={visit}>
             <span>{visit}</span>
-            <input type="date" value={visitDates[visit] || ''} onChange={(event) => saveDate(visit, event.target.value)} />
+            <small>{visits.find((item) => item.timepoint === visit)?.name || sampleVisitNames[visit]}</small>
+            <input disabled={loading} aria-label={`${visit} 방문일`} type="date" value={visitDates[visit] || ''} onChange={(event) => saveDate(visit, event.target.value)} />
           </div>
         ))}
 
-        <div className="strip-query">
+        <button type="button" className="strip-query" aria-label="Open Query 있는 항목만 보기" aria-pressed={queryOnly} onClick={() => setQueryOnly(!queryOnly)}>
           <span className="eyebrow">OPEN</span>
           <strong>{queries.filter((query) => query.status === 'OPEN').length}</strong>
-        </div>
+        </button>
       </div>
 
       <div className="crf-toolbar">
         <label className="check-control">
           <input type="checkbox" checked={queryOnly} onChange={(event) => setQueryOnly(event.target.checked)} />
-          Query only
+          Query 있는 항목만 보기
         </label>
       </div>
 
-      <section className="crf-table-panel">
+      <label className="check-control"><input type="checkbox" checked={showEmr} onChange={(event) => setShowEmr(event.target.checked)} /> EMR Reference 표시</label>
+      {loading && <p role="status">대상자 데이터를 불러오는 중입니다. 로드되지 않으면 Subjects에서 다시 열어 주세요.</p>}
+      <section className="crf-table-panel" inert={loading} aria-busy={loading} tabIndex={0} aria-label="대상자 CRF 입력 표">
         <table>
           <thead>
             <tr>
               <th>VARIABLE</th>
               <th>INPUT GUIDE</th>
-              <th>EMR REFERENCE</th>
+              {showEmr && <th>EMR REFERENCE</th>}
               <th>T1</th>
               <th>T2</th>
               <th>T3</th>
@@ -780,17 +766,18 @@ function Detail({
             </tr>
           </thead>
           <tbody>
+            {!rules.length && <tr><td colSpan={showEmr ? 7 : 6} className="crf-empty">{queryOnly ? '현재 열린 Query가 없습니다.' : '표시할 항목이 없습니다.'}</td></tr>}
             {rules.map((rule) => {
-              const openForRule = queries.filter((query) => query.subject_id === subject && query.variable_key === rule.variableKey && query.status === 'OPEN')
+              const openForRule = queries.filter((query) => query.subject_id === subject && query.variable_key === rule.variableKey && query.status === 'OPEN').sort((a, b) => a.timepoint.localeCompare(b.timepoint))
 
               return (
-                <tr key={rule.variableKey}>
+                <tr key={rule.variableKey} className={openForRule.length ? "queried-row" : undefined}>
                   <td>
-                    <strong className="variable-main">{rule.variableKey}</strong>
-                    <small className="variable-subtitle">{rule.label}</small>
+                    <strong className="variable-main">{rule.label}</strong>
+                    <small className="variable-subtitle">{rule.variableKey}</small>
                   </td>
-                  <td>{rule.inputGuide || '—'}</td>
-                  <td>{rule.emrLocation || '—'}</td>
+                  <td className="input-guide"><span title={inputGuide(rule)}>{inputGuide(rule)}</span></td>
+                  {showEmr && <td className="emr-reference">{rule.emrLocation || (mockEmrReferences[rule.variableKey] ? <><small className="mock-label">샘플</small>{mockEmrReferences[rule.variableKey]}</> : '—')}</td>}
 
                   {allVisits.map((visit) => {
                     const currentKey = `${rule.variableKey}-${visit}`
@@ -798,14 +785,9 @@ function Detail({
 
                     return (
                       <td key={currentKey}>
-                        <input
-                          className="value-input"
-                          data-cell-key={currentKey}
-                          type={rule.dataType === 'datetime' ? 'date' : 'text'}
-                          value={currentValue}
-                          onChange={(event) => update(currentKey, event.target.value)}
-                          onKeyDown={(event) => handleInputKeyDown(event, currentKey)}
-                        />
+                        <CrfField rule={rule} cellKey={currentKey} value={currentValue} missingReason={missing[currentKey]}
+                          hasQuery={openForRule.some((query) => query.timepoint === visit)} queryId={`query-${currentKey}`}
+                          onChange={(value, reason) => update(currentKey, value, reason)} />
                       </td>
                     )
                   })}

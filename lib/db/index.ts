@@ -46,6 +46,10 @@ database.exec(`
   CREATE TABLE IF NOT EXISTS hospital_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `)
 
+// Additive migration keeps existing values and old API clients compatible.
+const valueColumns = database.prepare('PRAGMA table_info(clinical_values)').all() as { name: string }[]
+if (!valueColumns.some((column) => column.name === 'missing_reason')) database.exec('ALTER TABLE clinical_values ADD COLUMN missing_reason TEXT')
+
 export function db() { return database }
 
 export function ensureSubject(subjectId: string) {

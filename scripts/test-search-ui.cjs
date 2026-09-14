@@ -6,6 +6,12 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
 }).outputText, filename)
 const { readRecentSearches, writeRecentSearches, updateRecentSearches } = require('../lib/recent-searches.ts')
 const { variableDisplay, orderedGroups } = require('../lib/variable-display.ts')
+const { normalizeQueryStatus, getSubjectQueryStatus } = require('../lib/clinical-utils.ts')
+assert.equal(normalizeQueryStatus('ARCHIVED'), 'RESOLVED')
+assert.equal(normalizeQueryStatus('RESOLVED'), 'RESOLVED')
+assert.equal(normalizeQueryStatus('OPEN'), 'OPEN')
+assert.equal(getSubjectQueryStatus([{ status: 'ARCHIVED' }, { status: 'OPEN' }]), 'OPEN')
+assert.equal(getSubjectQueryStatus([{ status: 'ARCHIVED' }]), 'RESOLVED')
 const storage = new Map()
 global.localStorage = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) }
 let history = []

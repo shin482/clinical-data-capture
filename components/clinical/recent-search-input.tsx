@@ -45,8 +45,7 @@ export function RecentSearchInput({ storageKey, value, onChange, onSearch, place
     <input ref={inputRef} type="search" aria-label={placeholder} placeholder={placeholder} value={value} autoComplete="off" aria-describedby={error ? messageId : undefined}
       onFocus={() => setOpen(true)} onChange={(event) => { onChange(event.target.value); setError(''); setOpen(true) }}
       onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void search(value) } if (event.key === 'Escape') setOpen(false) }} />
-    {open && <div className="recent-search-history"><small>최근 검색</small>
-      {!history.length && <p>최근 검색 기록이 없습니다.</p>}
+    {open && history.length > 0 && <div className="recent-search-history"><small>최근 검색</small>
       {history.map((term) => <div className="recent-search-row" key={term}>
         <button type="button" disabled={busy} onClick={() => void search(term)}>{term}</button>
         <button type="button" aria-label={`${term} 검색 기록 삭제`} onClick={(event) => { event.stopPropagation(); save(updateRecentSearches(history, term, true)); inputRef.current?.focus() }}>×</button>

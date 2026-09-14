@@ -185,7 +185,12 @@ tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }
 .recent-search-row button:first-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .recent-search-row button:hover { background: #e1f3ef; }
 .recent-search-error { display: block; color: var(--destructive); margin-top: 4px; font-size: 11px; }
-.variable-primary-note { display: block; margin-top: 3px; color: #906329; font-size: 11px; line-height: 1.5; }
+.variable-primary-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: nowrap; }
+.variable-primary-note { color: inherit; font-size: 11px; line-height: 1.5; white-space: nowrap; }
+.export-controls { align-items: flex-end; }
+.export-controls :is(select, .primary-btn) { box-sizing: border-box; height: 30px; min-height: 30px; padding: 4px 7px; line-height: 20px; border-width: 1px; border-radius: 4px; }
+.export-controls .field-label { margin-bottom: 0; }
+@media (max-width: 760px) { .variable-primary-row { flex-wrap: wrap; } .variable-primary-note { white-space: normal; } }
 .field-progress { margin: 16px 0; }
 .field-progress > div:first-child { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #41616d; }
 .subject-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }

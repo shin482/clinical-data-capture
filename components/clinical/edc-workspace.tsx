@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
 
 import { inputGuide, sampleVisitDates, type Visit } from '@/lib/crf-metadata'
-import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, emrReference } from '@/lib/clinical-utils'
+import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, normalizeQueryStatus, emrReference } from '@/lib/clinical-utils'
 import { getDataEntrySummary, type VisitCompletion, type VisitProgress } from '@/lib/data-entry'
 import { emptyPageAccess, isProtectedPage, pageSessionKeys, readPageAccess, type ProtectedPage } from '@/lib/page-access'
 import { appConfig } from '@/lib/app-config'
@@ -736,8 +736,8 @@ function Detail({
               return (
                 <tr key={rule.variableKey} className={`${openForRule.length ? "queried-row" : ""} ${highlight === rule.variableKey ? "query-highlight" : ""}`}>
                   <td>
-                    <strong className="variable-main">{display.primary}</strong>
-                    {display.note && <strong className="variable-primary-note">{display.note}</strong>}
+                    <div className="variable-primary-row"><strong className="variable-main">{display.primary}</strong>
+                    {display.note && <span className="variable-primary-note">{display.note}</span>}</div>
                     <small className="variable-subtitle">{display.secondary}</small>
                   </td>
                   <td className="input-guide"><span title={inputGuide(rule)}>{inputGuide(rule)}</span></td>
@@ -784,7 +784,7 @@ function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects:
   })).filter((item) => statusFilter === 'All' || (statusFilter === 'Open' ? item.open > 0 : item.open === 0 && item.total > 0)), [queries, subjects, statusFilter])
 
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
-  useEffect(() => { if (!summary.some((item) => item.subject_id === selectedSubject)) setSelectedSubject(summary[0]?.subject_id || null) }, [summary, selectedSubject])
+  useEffect(() => { if (selectedSubject && !summary.some((item) => item.subject_id === selectedSubject)) setSelectedSubject(null) }, [summary, selectedSubject])
   const selectedQueries = selectedSubject ? queries.filter((query) => query.subject_id === selectedSubject) : []
 
   return (
@@ -851,7 +851,7 @@ function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects:
                   <td>{query.query_type}</td>
                   <td>{query.message}</td>
                   <td>
-                    <StatusPill tone={query.status === 'OPEN' ? 'warn' : 'good'}>{query.status}</StatusPill>
+                    <StatusPill tone={normalizeQueryStatus(query.status) === 'OPEN' ? 'warn' : 'good'}>{normalizeQueryStatus(query.status)}</StatusPill>
                   </td>
                   <td>{formatDateTime(query.updated_at || query.resolved_at || query.detected_at)}</td>
                 </tr>
@@ -1092,7 +1092,7 @@ function Export({ subject, subjects }: { subject: string; subjects: Subject[] })
           </div>
         </div>
 
-        <div className="toolbar compact-filter-controls" style={{ marginTop: 18 }}>
+        <div className="toolbar compact-filter-controls export-controls" style={{ marginTop: 18 }}>
           <label className="field-label">
             Subject
             <select value={selectedSubject} onChange={(event) => setSelectedSubject(event.target.value)}>

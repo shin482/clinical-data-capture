@@ -1,7 +1,7 @@
 import { sortSubjectsNumerically } from '@/lib/clinical-utils'
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureSubject, rowToVariable } from '@/lib/db'
-import { completionVisits, isVisitComplete, type EntryValue } from '@/lib/data-entry'
+import { completionVisits, getSubjectVisitProgress, type EntryValue } from '@/lib/data-entry'
 import type { Visit } from '@/lib/crf-metadata'
 
 export function GET() {
@@ -16,13 +16,18 @@ export function GET() {
     byVisit.set(entry.visit_id, list)
   }
   const visitIds = new Map(visits.map((visit) => [JSON.stringify([visit.subject_id, visit.timepoint]), visit.id]))
-  return NextResponse.json(sortSubjectsNumerically(rows).map((subject) => ({
-    ...subject,
-    visit_completion: Object.fromEntries(completionVisits.map((visit) => {
+  return NextResponse.json(sortSubjectsNumerically(rows).map((subject) => {
+    const progress = completionVisits.map((visit) => {
       const id = visitIds.get(JSON.stringify([subject.subject_id, visit]))
-      return [visit, id !== undefined && isVisitComplete(subject.subject_id, visit, rules, byVisit.get(id) || [])]
-    })),
-  })))
+      const stats = getSubjectVisitProgress(subject.subject_id, visit, rules, byVisit.get(id!) || [])
+      return { visit, ...stats, complete: id !== undefined && stats.complete }
+    })
+    return {
+      ...subject,
+      visit_completion: Object.fromEntries(progress.map((stats) => [stats.visit, stats.complete])),
+      visit_progress: Object.fromEntries(progress.map(({ visit, ...stats }) => [visit, stats])),
+    }
+  }))
 }
 
 export async function POST(request: NextRequest) {

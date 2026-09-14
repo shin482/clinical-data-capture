@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db, ensureSubject } from '@/lib/db'
+import { db, ensureSubject, rowToVariable } from '@/lib/db'
 import { missingReasons } from '@/lib/crf-metadata'
+import type { Visit } from '@/lib/crf-metadata'
+import { isCollectedAtVisit } from '@/lib/visit-rules'
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ subjectId: string }> }) {
   const { subjectId } = await context.params
@@ -19,11 +21,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ su
   if (body.missingReason && body.value) return NextResponse.json({ error: 'Value and missing reason conflict' }, { status: 400 })
   const missingReason = body.missingReason || null
   const storedValue = missingReason ? null : body.value || ''
+  const variable = db().prepare('SELECT * FROM variable_definitions WHERE variable_key=? AND enabled=1').get(body.variableKey) as Record<string, unknown> | undefined
+  if (!variable) return NextResponse.json({ error: 'Variable is not enabled or does not exist' }, { status: 400 })
+  if (!isCollectedAtVisit(rowToVariable(variable), body.timepoint as Visit)) return NextResponse.json({ error: 'Variable is not collected at this visit' }, { status: 400 })
   return db().transaction(() => {
   const subject = ensureSubject(subjectId)
   const visit = db().prepare('SELECT id FROM visits WHERE subject_id=? AND timepoint=?').get(subject.id, body.timepoint) as { id: number }
-  const variable = db().prepare('SELECT * FROM variable_definitions WHERE variable_key=? AND enabled=1').get(body.variableKey) as Record<string, unknown> | undefined
-  if (!variable) return NextResponse.json({ error: 'Variable is not enabled or does not exist' }, { status: 400 })
   const old = db().prepare('SELECT value, missing_reason FROM clinical_values WHERE visit_id=? AND variable_key=?').get(visit.id, body.variableKey) as { value: string | null; missing_reason: string | null } | undefined
   db().prepare(`INSERT INTO clinical_values (subject_id,visit_id,variable_key,value,missing_reason,modified_by) VALUES (?,?,?,?,?,?) ON CONFLICT(visit_id,variable_key) DO UPDATE SET value=excluded.value,missing_reason=excluded.missing_reason,modified_by=excluded.modified_by,modified_at=CURRENT_TIMESTAMP`).run(subject.id, visit.id, body.variableKey, storedValue, missingReason, body.modifiedBy || 'local-user')
   if ((old?.value || '') !== (storedValue || '') || (old?.missing_reason || null) !== missingReason) db().prepare('INSERT INTO audit_logs(subject_id,timepoint,variable_key,previous_value,new_value,modified_by) VALUES(?,?,?,?,?,?)').run(subjectId, body.timepoint, body.variableKey, JSON.stringify({ value: old?.value ?? null, missingReason: old?.missing_reason ?? null }), JSON.stringify({ value: storedValue, missingReason }), body.modifiedBy || 'local-user')

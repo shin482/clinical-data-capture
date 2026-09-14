@@ -7,7 +7,6 @@ export function GET(request: NextRequest) {
   const values: unknown[] = []
 
   const subjectId = params.get('subjectId')?.trim()
-  const user = params.get('user')?.trim()
   const visit = params.get('visit')?.trim()
   const variable = params.get('variable')?.trim()
   const action = params.get('action')?.trim()
@@ -17,10 +16,6 @@ export function GET(request: NextRequest) {
   if (subjectId) {
     where.push('subject_id = ?')
     values.push(subjectId)
-  }
-  if (user) {
-    where.push('modified_by LIKE ?')
-    values.push(`%${user}%`)
   }
   if (visit) {
     where.push('timepoint = ?')

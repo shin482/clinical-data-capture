@@ -1,12 +1,16 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, MoreHorizontal, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
+import { Activity, ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
 
-import { inputGuide, sampleVisitDates, type MissingReason, type Visit } from '@/lib/crf-metadata'
+import { inputGuide, sampleVisitDates, type Visit } from '@/lib/crf-metadata'
 import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, emrReference } from '@/lib/clinical-utils'
-import { getDataEntrySummary, type VisitCompletion } from '@/lib/data-entry'
+import { getDataEntrySummary, type VisitCompletion, type VisitProgress } from '@/lib/data-entry'
 import { emptyPageAccess, isProtectedPage, pageSessionKeys, readPageAccess, type ProtectedPage } from '@/lib/page-access'
+import { appConfig } from '@/lib/app-config'
+import { isCollectedAtVisit } from '@/lib/visit-rules'
+import { HelpModal } from './help-modal'
+import { SummaryCard } from './summary-card'
 import { CrfField } from './crf-field'
 type SaveStatus = 'saving' | 'saved' | 'failed'
 
@@ -24,11 +28,14 @@ type Rule = {
   allowBlank: boolean
   allowUnknown99: boolean
   enabled: boolean
+  timepointT1: boolean
+  timepointT2: boolean
+  timepointT3: boolean
   inputGuide: string
   emrLocation: string
 }
 
-type Subject = { subject_id: string; updated_at: string; open_queries: number; visit_completion: VisitCompletion }
+type Subject = { subject_id: string; updated_at: string; open_queries: number; visit_completion: VisitCompletion; visit_progress: Record<Visit, VisitProgress> }
 type VisitData = { id: number; timepoint: Visit; visitDate: string | null; name?: string }
 type QueryRow = {
   form_name: string
@@ -121,6 +128,9 @@ function ruleFromApi(rule: any): Rule {
     allowBlank: Boolean(rule.allowBlank),
     allowUnknown99: Boolean(rule.allowUnknown99),
     enabled: Boolean(rule.enabled),
+    timepointT1: Boolean(rule.timepointT1),
+    timepointT2: Boolean(rule.timepointT2),
+    timepointT3: Boolean(rule.timepointT3),
     inputGuide: rule.inputGuide || '',
     emrLocation: rule.emrLocation || '',
   }
@@ -141,6 +151,7 @@ function formatDateTime(value: string | null | undefined) {
 }
 
 export default function EdcWorkspace() {
+  const [helpOpen, setHelpOpen] = useState(false)
   const [active, setActive] = useState('Dashboard')
   const [subject, setSubject] = useState('')
   const [rules, setRules] = useState<Rule[]>([])
@@ -153,11 +164,10 @@ export default function EdcWorkspace() {
   const [queries, setQueries] = useState<QueryRow[]>([])
   const [saved, setSaved] = useState<SaveStatus>('saved')
   const [lastSaved, setLastSaved] = useState('')
-  const [missing, setMissing] = useState<Record<string, MissingReason | undefined>>({})
   const pendingSaves = useRef(new Map<string, number>())
   const failedSaves = useRef(new Set<string>())
   const saveQueue = useRef<Promise<void>>(Promise.resolve())
-  const drafts = useRef(new Map<string, { value: string; missingReason?: MissingReason }>())
+  const drafts = useRef(new Map<string, { value: string }>())
   const [detailLoading, setDetailLoading] = useState(false)
   const selectedSubject = useRef(subject)
   selectedSubject.current = subject
@@ -207,13 +217,11 @@ export default function EdcWorkspace() {
 
       const data = await response.json()
       const restored: Record<string, string> = {}
-      const restoredMissing: Record<string, MissingReason> = {}
 
       data.values.forEach((item: any) => {
         const visit = data.visits.find((candidate: VisitData) => candidate.id === item.visitId)
         if (visit) {
           restored[`${item.variableKey}-${visit.timepoint}`] = item.value ?? ''
-          if (item.missingReason) restoredMissing[`${item.variableKey}-${visit.timepoint}`] = item.missingReason
         }
       })
 
@@ -222,12 +230,9 @@ export default function EdcWorkspace() {
         const prefix = `${targetSubject}-`
         if (key.startsWith(prefix)) {
           restored[key.slice(prefix.length)] = draft.value
-          if (draft.missingReason) restoredMissing[key.slice(prefix.length)] = draft.missingReason
-          else delete restoredMissing[key.slice(prefix.length)]
         }
       }
       setValues(restored)
-      setMissing(restoredMissing)
       setVisits(data.visits)
       setDetailLoading(false)
     } catch {
@@ -251,7 +256,6 @@ export default function EdcWorkspace() {
     selectedSubject.current = id
     setSubject(id)
     setValues({})
-    setMissing({})
     setVisits([])
     setDetailLoading(true)
     setLastSaved('')
@@ -261,16 +265,15 @@ export default function EdcWorkspace() {
     await refreshSubjects()
   }
 
-  const update = (key: string, value: string, missingReason?: MissingReason) => {
+  const update = (key: string, value: string) => {
     setValues((current) => ({ ...current, [key]: value }))
-    setMissing((current) => ({ ...current, [key]: missingReason }))
     setSaved('saving')
     const separator = key.lastIndexOf('-')
     const variableKey = key.slice(0, separator)
     const timepoint = key.slice(separator + 1)
     const targetSubject = subject
     const timerKey = `${subject}-${key}`
-    drafts.current.set(timerKey, { value, missingReason })
+    drafts.current.set(timerKey, { value })
     const revision = (pendingSaves.current.get(timerKey) || 0) + 1
     pendingSaves.current.set(timerKey, revision)
     failedSaves.current.delete(timerKey)
@@ -280,7 +283,7 @@ export default function EdcWorkspace() {
         try {
           const response = await fetch(`/api/subjects/${encodeURIComponent(targetSubject)}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ variableKey, timepoint, value: missingReason ? null : value, missingReason: missingReason || null, modifiedBy: 'local-user' }),
+            body: JSON.stringify({ variableKey, timepoint, value, missingReason: null, modifiedBy: 'local-user' }),
           })
           if (!response.ok) throw new Error('save failed')
           if (pendingSaves.current.get(timerKey) === revision) {
@@ -379,7 +382,6 @@ export default function EdcWorkspace() {
         queries={subjectQueries}
         saved={saved}
         lastSaved={lastSaved}
-        missing={missing}
         loading={detailLoading}
         update={update}
         queryOnly={queryOnly}
@@ -411,7 +413,7 @@ export default function EdcWorkspace() {
               <br />
               DATA CAPTURE
             </strong>
-            <span>LOCAL EDC · v1.0</span>
+            <span>LOCAL EDC · {appConfig.version}</span>
           </div>
         </div>
 
@@ -419,7 +421,7 @@ export default function EdcWorkspace() {
           <span className="site-dot" />
           <div>
             <span className="eyebrow">CURRENT SITE</span>
-            <strong>EWH · 이화의료원</strong>
+            <strong>{appConfig.site}</strong>
           </div>
         </div>
 
@@ -451,14 +453,7 @@ export default function EdcWorkspace() {
               <span>Data stays on this device</span>
             </div>
           </div>
-          <div className="user-card">
-            <div className="avatar">MJ</div>
-            <div>
-              <strong>Minji Jung</strong>
-              <span>{pageAccess['Rule Master'] ? 'Rule Master access' : pageAccess['Audit Trail'] ? 'Audit Trail access' : 'Data Entry'}</span>
-            </div>
-            <MoreHorizontal size={17} />
-          </div>
+
         </div>
       </aside>
 
@@ -480,16 +475,15 @@ export default function EdcWorkspace() {
               <span className={`live-dot ${databaseConnected ? '' : 'disconnected'}`} />
               Local database {databaseConnected ? 'connected' : 'disconnected'}
             </span>
-            <button className="icon-btn" type="button">
+            <button className="icon-btn help-button" type="button" aria-label="Help" onClick={() => setHelpOpen(true)}>
               <HelpCircle size={18} />
             </button>
-            <button className="avatar small" type="button">
-              MJ
-            </button>
+            <span className="avatar small" aria-label="Current user">MJ</span>
           </div>
         </header>
 
         {content}
+        {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
         {adminTarget && <AdminAccessModal target={adminTarget} onCancel={() => setAdminTarget(null)} onSuccess={() => {
           try { sessionStorage.setItem(pageSessionKeys[adminTarget], 'true') } catch {}
           setPageAccess((current) => ({ ...current, [adminTarget]: true })); setActive(adminTarget); setAdminTarget(null)
@@ -514,25 +508,10 @@ function Dashboard({ subjects, queries, onOpen, onOpenQueries }: { subjects: Sub
       />
 
       <div className="metrics">
-        <div className="metric">
-          <div className="metric-mark teal" />
-          <div>
-            <p className="eyebrow">ENROLLED SUBJECTS</p>
-            <p className="metric-value">{subjects.length}</p>
-            <p className="metric-detail">Local database</p>
-          </div>
-        </div>
-
-        <button type="button" className="metric metric-button" onClick={onOpenQueries}>
-          <div className="metric-mark amber" />
-          <div>
-            <p className="eyebrow">OPEN QUERY COUNT</p>
-            <p className="metric-value">{openQueryCount}</p>
-            <p className="metric-detail">Current unresolved queries</p>
-          </div>
-        </button>
-        <div className="metric"><div className="metric-mark teal" /><div><p className="eyebrow">DATA ENTRY COMPLETE</p><p className="metric-value">{summary.complete}</p><p className="metric-detail">All required visits entered</p></div></div>
-        <div className="metric"><div className="metric-mark slate" /><div><p className="eyebrow">DATA ENTRY INCOMPLETE</p><p className="metric-value">{summary.incomplete}</p><p className="metric-detail">Required entries remaining</p></div></div>
+        <SummaryCard label="ENROLLED SUBJECTS" value={subjects.length} detail="Local database" />
+        <SummaryCard label="OPEN QUERY COUNT" value={openQueryCount} detail="Current unresolved queries" tone="amber" onClick={onOpenQueries} />
+        <SummaryCard label="DATA ENTRY COMPLETE" value={summary.complete} detail="All required visits entered" />
+        <SummaryCard label="DATA ENTRY INCOMPLETE" value={summary.incomplete} detail="Required entries remaining" tone="slate" />
       </div>
 
       <div className="dashboard-grid operations-grid">
@@ -556,13 +535,20 @@ function Dashboard({ subjects, queries, onOpen, onOpenQueries }: { subjects: Sub
         </div>
       </section>
       <section className="panel">
-        <div className="panel-head"><div><h2>Data Entry Progress</h2><p>Required entries completed per visit</p></div></div>
-        <div className="visit-bars">
-          {summary.visits.map(({ visit, completed, total, percentage }) => <div className="visit-row entry-progress-row" key={visit}>
-            <span className="visit-label">{visit}</span>
-            <div className="bar" role="progressbar" aria-label={`${visit} data entry completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${completed} / ${total} (${percentage}%)`}><span style={{ width: `${percentage}%` }} /></div>
-            <strong>{completed} / {total} ({percentage}%)</strong>
-          </div>)}
+        <div className="panel-head"><div><h2>Data Entry Progress</h2><p>Required entries by subject and visit</p></div></div>
+        <div className="subject-progress-list">
+          {!subjects.length && <p className="crf-empty">No subjects enrolled</p>}
+          {sortSubjectsNumerically(subjects).map((item) => <section className="subject-progress" key={item.subject_id} aria-label={`${item.subject_id} data entry progress`}>
+            <h3>{item.subject_id}</h3>
+            {allVisits.map((visit) => {
+              const { completed, total, percentage } = item.visit_progress[visit]
+              return <div className="visit-row entry-progress-row" key={visit}>
+                <span className="visit-label">{visit}</span>
+                <div className="bar" role="progressbar" aria-label={`${item.subject_id} ${visit} data entry completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${completed} / ${total} (${percentage}%)`}><span style={{ width: `${percentage}%` }} /></div>
+                <strong>{completed} / {total} ({percentage}%)</strong>
+              </div>
+            })}
+          </section>)}
         </div>
       </section>
       </div>
@@ -673,7 +659,6 @@ function Detail({
   queries,
   saved,
   lastSaved,
-  missing,
   loading,
   update,
   queryOnly,
@@ -688,9 +673,8 @@ function Detail({
   queries: QueryRow[]
   saved: SaveStatus
   lastSaved: string
-  missing: Record<string, MissingReason | undefined>
   loading: boolean
-  update: (key: string, value: string, missingReason?: MissingReason) => void
+  update: (key: string, value: string) => void
   queryOnly: boolean
   setQueryOnly: (value: boolean) => void
   onBack: () => void
@@ -796,9 +780,9 @@ function Detail({
 
                     return (
                       <td key={currentKey}>
-                        <CrfField rule={rule} cellKey={currentKey} value={currentValue} missingReason={missing[currentKey]}
+                        {isCollectedAtVisit(rule, visit) ? <CrfField rule={rule} cellKey={currentKey} value={currentValue}
                           hasQuery={openForRule.some((query) => query.timepoint === visit)} queryId={`query-${rule.variableKey}`}
-                          onChange={(value, reason) => update(currentKey, value, reason)} />
+                          onChange={(value) => update(currentKey, value)} /> : <span id={currentKey} tabIndex={-1} className="not-collected">Not collected</span>}
                       </td>
                     )
                   })}
@@ -1212,7 +1196,6 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
     subjectId: '',
     from: '',
     to: '',
-    user: '',
     visit: '',
     variable: '',
     action: '',
@@ -1223,7 +1206,6 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
     if (filters.subjectId) params.set('subjectId', filters.subjectId)
     if (filters.from) params.set('from', filters.from)
     if (filters.to) params.set('to', filters.to)
-    if (filters.user) params.set('user', filters.user)
     if (filters.visit) params.set('visit', filters.visit)
     if (filters.variable) params.set('variable', filters.variable)
     if (filters.action) params.set('action', filters.action)
@@ -1255,10 +1237,7 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
             To
             <input type="date" value={filters.to} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))} />
           </label>
-          <label className="field-label">
-            User
-            <input value={filters.user} onChange={(event) => setFilters((current) => ({ ...current, user: event.target.value }))} />
-          </label>
+
 
           <label className="field-label">
             Visit
@@ -1291,7 +1270,7 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
           <div className="filter-actions">
             <button type="button" className="primary-btn" onClick={() => void loadAuditTrail()}>
               Apply filters
-            </button><button type="button" className="outline-btn" onClick={() => { setFilters({ subjectId: '', from: '', to: '', user: '', visit: '', variable: '', action: '' }); void loadAuditTrail(true) }}>Clear filters</button>
+            </button><button type="button" className="outline-btn" onClick={() => { setFilters({ subjectId: '', from: '', to: '', visit: '', variable: '', action: '' }); void loadAuditTrail(true) }}>Clear filters</button>
           </div>
         </div>
       </section>

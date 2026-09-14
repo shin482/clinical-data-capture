@@ -1,0 +1,35 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const ts = require('typescript')
+require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText, filename)
+const { readRecentSearches, writeRecentSearches, updateRecentSearches } = require('../lib/recent-searches.ts')
+const { variableDisplay, orderedGroups } = require('../lib/variable-display.ts')
+const storage = new Map()
+global.localStorage = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) }
+let history = []
+for (const value of ['002', '005', '002']) history = updateRecentSearches(history, value)
+assert.deepEqual(history, ['002', '005'])
+writeRecentSearches('dashboard', history)
+writeRecentSearches('variables', ['crp'])
+writeRecentSearches('dashboard', updateRecentSearches(readRecentSearches('dashboard'), '002', true))
+assert.deepEqual(readRecentSearches('dashboard'), ['005'], 'deleted item stays removed when storage is reloaded')
+assert.deepEqual(readRecentSearches('variables'), ['crp'], 'search contexts remain separate')
+for (let i = 0; i < 15; i++) history = updateRecentSearches(history, String(i))
+assert.equal(history.length, 10)
+assert.equal(history[0], '14')
+storage.set('broken', '{')
+assert.deepEqual(readRecentSearches('broken'), [])
+const rules = require('../lib/study-variables.json')
+for (const rule of rules) {
+  const result = variableDisplay(rule)
+  const swapped = rule.section === '검사결과' || ['bmi', 'sbp', 'dbp', 'pta'].includes(rule.variableKey)
+  assert.equal(result.primary, swapped ? rule.variableKey : rule.label)
+  if (rule.variableKey === 'pta') {
+    assert.match(result.note, /T1.*궤양/)
+    assert.equal(result.secondary, 'Percutaneous Transluminal Angioplasty 여부')
+  } else assert.equal(result.secondary, swapped ? rule.label : rule.variableKey)
+}
+assert.deepEqual(orderedGroups(['기본정보', '기타', '검사결과']), ['기본정보', '검사결과', '기타'])
+console.log('PASS: recent search deletion/reload, deduplication, recency, limit, separate storage, corrupt storage, all variable display rules, PTA note, stable group ordering')

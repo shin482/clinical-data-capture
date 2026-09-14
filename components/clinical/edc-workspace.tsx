@@ -12,6 +12,9 @@ import { isCollectedAtVisit } from '@/lib/visit-rules'
 import { HelpModal } from './help-modal'
 import { SummaryCard } from './summary-card'
 import { formatDateTime, timestampMillis, localDateBoundary } from '@/lib/date-time'
+import { RecentSearchInput } from './recent-search-input'
+import { variableDisplay, orderedGroups } from '@/lib/variable-display'
+import { readRecentSearches, updateRecentSearches, writeRecentSearches } from '@/lib/recent-searches'
 import { DataEntryProgress } from './data-entry-progress'
 import { CrfField } from './crf-field'
 type SaveStatus = 'saving' | 'saved' | 'failed'
@@ -536,7 +539,7 @@ function Subjects({ subjects, onOpen }: { subjects: Subject[]; onOpen: (id: stri
       <div className="toolbar">
         <div className="search-box">
           <Search size={16} />
-          <input placeholder="Search Subject ID" value={search} onChange={(event) => setSearch(event.target.value)} />
+          <RecentSearchInput storageKey="edc_recent_subject_list" placeholder="Search Subject ID" value={search} onChange={setSearch} onSearch={(term) => !term || subjects.some((item) => item.subject_id.toLowerCase().includes(term.toLowerCase())) ? term : false} />
         </div>
       </div>
 
@@ -695,7 +698,7 @@ function Detail({
 
       <div className="crf-toolbar subject-filter-bar">
         <label className="field-label filter-box">EMR 기준 정렬<select value={sort} onChange={(e) => setSort(e.target.value)}><option value="default">기본 순서</option><option value="asc">EMR Reference 오름차순</option><option value="desc">EMR Reference 내림차순</option></select></label>
-        <label className="field-label filter-box">항목 그룹<select value={form} onChange={(e) => setForm(e.target.value)}><option value="">전체 그룹</option>{Array.from(new Set(rules.map((r) => r.section))).map((name) => <option key={name}>{name}</option>)}</select></label>
+        <label className="field-label filter-box">항목 그룹<select value={form} onChange={(e) => setForm(e.target.value)}><option value="">전체 그룹</option>{orderedGroups(Array.from(new Set(rules.map((r) => r.section)))).map((name) => <option key={name}>{name}</option>)}</select></label>
         <label className="field-label filter-box">방문 시점<select value={visitFilter} onChange={(e) => setVisitFilter(e.target.value)}><option value="">전체 방문</option>{allVisits.map((v) => <option key={v}>{v}</option>)}</select></label>
         <label className="check-control">
           <input type="checkbox" checked={queryOnly} onChange={(event) => setQueryOnly(event.target.checked)} />
@@ -727,13 +730,15 @@ function Detail({
           <tbody>
             {!shownRules.length && <tr><td colSpan={shownVisits.length + (showEmr ? 4 : 3)} className="crf-empty">{queryOnly ? '현재 열린 Query가 없습니다.' : '표시할 항목이 없습니다.'}</td></tr>}
             {shownRules.map((rule) => {
+              const display = variableDisplay(rule)
               const openForRule = queries.filter((query) => query.subject_id === subject && query.variable_key === rule.variableKey && query.status === 'OPEN').sort((a, b) => a.timepoint.localeCompare(b.timepoint))
 
               return (
                 <tr key={rule.variableKey} className={`${openForRule.length ? "queried-row" : ""} ${highlight === rule.variableKey ? "query-highlight" : ""}`}>
                   <td>
-                    <strong className="variable-main">{rule.label}</strong>
-                    <small className="variable-subtitle">{rule.variableKey}</small>
+                    <strong className="variable-main">{display.primary}</strong>
+                    {display.note && <strong className="variable-primary-note">{display.note}</strong>}
+                    <small className="variable-subtitle">{display.secondary}</small>
                   </td>
                   <td className="input-guide"><span title={inputGuide(rule)}>{inputGuide(rule)}</span></td>
                   {showEmr && <td className="emr-reference">{!rule.emrLocation && <small className="mock-label">Sample</small>}{emrReference(rule)}</td>}
@@ -771,7 +776,7 @@ function Detail({
 }
 
 function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects: Subject[]; onOpen: (query: QueryRow) => void }) {
-  const [statusFilter, setStatusFilter] = useState('Open')
+  const [statusFilter, setStatusFilter] = useState('All')
   const summary = useMemo(() => sortSubjectsNumerically(subjects.map((subject) => {
     const items = queries.filter((q) => q.subject_id === subject.subject_id)
     const open = getOpenQueryCount(items)
@@ -905,7 +910,7 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
           </div>
           <div className="search-box compact">
             <Search size={15} />
-            <input placeholder="Search variables" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <RecentSearchInput storageKey="edc_recent_rule_variables" placeholder="Search variables" value={search} onChange={setSearch} onSearch={(term) => !term || rules.some((rule) => `${rule.variableKey} ${rule.label}`.toLowerCase().includes(term.toLowerCase())) ? term : false} />
           </div>
         </div>
 
@@ -1087,7 +1092,7 @@ function Export({ subject, subjects }: { subject: string; subjects: Subject[] })
           </div>
         </div>
 
-        <div className="toolbar" style={{ marginTop: 18 }}>
+        <div className="toolbar compact-filter-controls" style={{ marginTop: 18 }}>
           <label className="field-label">
             Subject
             <select value={selectedSubject} onChange={(event) => setSelectedSubject(event.target.value)}>
@@ -1161,18 +1166,21 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
     action: '',
   })
 
-  const loadAuditTrail = async (clear = false) => {
+  const loadAuditTrail = async (clear = false, variable = filters.variable) => {
     const params = new URLSearchParams()
     if (filters.subjectId) params.set('subjectId', filters.subjectId)
     if (filters.from) params.set('fromInstant', localDateBoundary(filters.from))
     if (filters.to) params.set('toInstant', localDateBoundary(filters.to, true))
     if (filters.visit) params.set('visit', filters.visit)
-    if (filters.variable) params.set('variable', filters.variable)
+    if (variable) params.set('variable', variable)
     if (filters.action) params.set('action', filters.action)
 
     const response = await fetch(`/api/audit${!clear && params.size ? `?${params.toString()}` : ''}`)
     const data = await response.json()
+    if (!response.ok) throw new Error('Audit search failed')
     setRows(data)
+    if (!clear && variable.trim() && data.length) writeRecentSearches('edc_recent_audit_variables', updateRecentSearches(readRecentSearches('edc_recent_audit_variables'), variable.trim()))
+    return data as AuditLogRow[]
   }
 
   useEffect(() => {
@@ -1184,7 +1192,7 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
       <PageHeading eyebrow="ADMINISTRATION" title="Audit Trail" subtitle="Search and review data change history" />
 
       <section className="panel" style={{ padding: 20 }}>
-        <div className="filter-grid audit-filter-grid">
+        <div className="filter-grid audit-filter-grid compact-filter-controls">
           <label className="field-label">
             Subject ID
             <select value={filters.subjectId} onChange={(event) => setFilters((current) => ({ ...current, subjectId: event.target.value }))}><option value="">All subjects</option>{subjects.map((s) => <option key={s.subject_id}>{s.subject_id}</option>)}</select>
@@ -1213,7 +1221,7 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
 
           <label className="field-label">
             Variable
-            <input value={filters.variable} onChange={(event) => setFilters((current) => ({ ...current, variable: event.target.value }))} />
+            <RecentSearchInput storageKey="edc_recent_audit_variables" placeholder="Variable..." value={filters.variable} onChange={(variable) => setFilters((current) => ({ ...current, variable }))} onSearch={async (term) => { const found = await loadAuditTrail(false, term); return !term || found.length ? term : false }} />
           </label>
 
           <label className="field-label">

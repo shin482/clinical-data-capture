@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server'
 import { db, rowToVariable } from '@/lib/db'
+import { studyVariables } from '@/lib/study-schema'
 
 export async function PATCH(request: Request, context: { params: Promise<{ variableKey: string }> }) {
   const { variableKey } = await context.params
   const input = await request.json() as Record<string, unknown>
+  const canonical = studyVariables.find((variable) => variable.variableKey === variableKey)
+  if (!canonical) return NextResponse.json({ error: 'Variable is not in the study schema' }, { status: 404 })
+  for (const key of ['variableKey', 'label', 'timepointT1', 'timepointT2', 'timepointT3'] as const) {
+    if (input[key] !== undefined && input[key] !== canonical[key]) return NextResponse.json({ error: 'Name, label and visits are defined by the authoritative Excel schema' }, { status: 409 })
+  }
   const current = db().prepare('SELECT * FROM variable_definitions WHERE variable_key=?').get(variableKey) as Record<string, unknown> | undefined
   if (!current) return NextResponse.json({ error: 'Variable not found' }, { status: 404 })
   const clinicalData = db().prepare('SELECT 1 FROM clinical_values WHERE variable_key=? LIMIT 1').get(variableKey)

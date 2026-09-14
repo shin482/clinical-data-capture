@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { canonicalVariableKey, legacyVariableAliases } from '@/lib/study-schema'
 
 export function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams
@@ -22,8 +23,11 @@ export function GET(request: NextRequest) {
     values.push(visit)
   }
   if (variable) {
-    where.push('variable_key LIKE ?')
-    values.push(`%${variable}%`)
+    const canonical = canonicalVariableKey(variable)
+    const aliases = Object.keys(legacyVariableAliases).filter((key) => legacyVariableAliases[key] === canonical)
+    const terms = [...new Set([variable, canonical, ...aliases])]
+    where.push(`(${terms.map(() => 'variable_key LIKE ?').join(' OR ')})`)
+    values.push(...terms.map((term) => `%${term}%`))
   }
   if (action) {
     where.push('action = ?')

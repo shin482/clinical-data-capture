@@ -64,24 +64,6 @@ type AuditLogRow = {
 
 const allVisits = ['T1', 'T2', 'T3'] as Visit[]
 
-const emptyRule = {
-  variableKey: '',
-  label: '',
-  section: '기타',
-  dataType: 'character',
-  unitOrFormat: '',
-  categoryOptions: '',
-  minValue: '',
-  maxValue: '',
-  parents: '',
-  activeValues: '',
-  allowBlank: false,
-  allowUnknown99: false,
-  enabled: true,
-  inputGuide: '',
-  emrLocation: '',
-}
-
 const nav = [
   { label: 'Dashboard', icon: LayoutDashboard },
   { label: 'Subjects', icon: Users },
@@ -748,6 +730,14 @@ function Detail({
       </div>
 
       <label className="check-control"><input type="checkbox" checked={showEmr} onChange={(event) => setShowEmr(event.target.checked)} /> EMR Reference 표시</label>
+      {target && !rules.some((rule) => rule.variableKey === target.variable_key && isCollectedAtVisit(rule, target.timepoint)) && <section className="panel" style={{ padding: 20 }}>
+        <h2>Historical Query</h2>
+        <div id={`${target.variable_key}-${target.timepoint}`} tabIndex={-1} style={{ background: highlight === target.variable_key ? '#d5eee7' : undefined, padding: 12, borderRadius: 4 }}>
+          <strong>{target.timepoint} / {target.form_name} / {target.variable_name}</strong>
+          <p>{target.message}</p><p>Recorded value: {values[`${target.variable_key}-${target.timepoint}`] || target.current_value || 'No value'}</p>
+          <p>This variable or visit is no longer collected. The historical record is retained.</p>
+        </div>
+      </section>}
       {loading && <p role="status">대상자 데이터를 불러오는 중입니다. 로드되지 않으면 Subjects에서 다시 열어 주세요.</p>}
       <section className="crf-table-panel" inert={loading} aria-busy={loading} tabIndex={0} aria-label="대상자 CRF 입력 표">
         <table>
@@ -907,8 +897,8 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
       maxValue: editing.maxValue === '' ? null : Number(editing.maxValue),
     }
 
-    const response = await fetch(editing._new ? '/api/variables' : `/api/variables/${encodeURIComponent(editing.variableKey)}`, {
-      method: editing._new ? 'POST' : 'PATCH',
+    const response = await fetch(`/api/variables/${encodeURIComponent(editing.variableKey)}`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
@@ -929,12 +919,8 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
       <PageHeading
         eyebrow="CONFIGURATION"
         title="Rule master"
-        subtitle="Variable definitions from local SQLite"
-        action={
-          <button className="primary-btn" type="button" onClick={() => setEditing({ ...emptyRule, _new: true })}>
-            <Plus size={16} /> Add variable
-          </button>
-        }
+        subtitle="71 study variables. Names, labels and visits follow the authoritative Excel schema."
+
       />
 
       <section className="panel table-panel">
@@ -992,7 +978,7 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
           <form className="modal modal-wide" onSubmit={submit}>
             <div className="panel-head">
               <div>
-                <h2>{editing._new ? 'Add variable' : 'Edit variable'}</h2>
+                <h2>Edit validation rule</h2>
                 <p>Rule Master changes are protected by admin access.</p>
               </div>
               <button type="button" className="icon-btn" onClick={() => setEditing(null)}>
@@ -1007,7 +993,7 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
               </label>
               <label>
                 Label
-                <input value={editing.label} onChange={(event) => setEditing({ ...editing, label: event.target.value })} />
+                <input readOnly value={editing.label} onChange={(event) => setEditing({ ...editing, label: event.target.value })} />
               </label>
               <label>
                 Section

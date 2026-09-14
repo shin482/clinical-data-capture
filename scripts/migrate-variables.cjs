@@ -1,0 +1,30 @@
+const fs = require('node:fs')
+const path = require('node:path')
+const assert = require('node:assert/strict')
+const Database = require('better-sqlite3')
+const ts = require('typescript')
+const { readSource, compare } = require('./validate-variables.cjs')
+
+async function main() {
+  const root = path.resolve(__dirname, '..')
+  const directory = process.env.EDC_DATA_DIR || path.join(root, 'data')
+  const file = path.join(directory, 'edc.sqlite')
+  if (fs.existsSync(file)) {
+    const original = new Database(file, { readonly: true })
+    const backupDirectory = path.join(directory, 'schema-backups')
+    fs.mkdirSync(backupDirectory, { recursive: true })
+    const destination = path.join(backupDirectory, `before-final-71-${Date.now()}.sqlite`)
+    await original.backup(destination)
+    original.close()
+    console.log(`Backup: ${destination}`)
+  }
+  require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText, filename)
+  const { db, rowToVariable } = require('../lib/db/index.ts')
+  const rows = db().prepare('SELECT * FROM variable_definitions WHERE study_active=1 ORDER BY display_order').all().map(rowToVariable)
+  const diff = compare(readSource(), rows)
+  assert.equal(rows.length, 71)
+  assert.deepEqual(diff, { missing: [], unexpected: [], mismatches: [] })
+  console.log(JSON.stringify({ activeVariables: rows.length, archivedDefinitions: db().prepare('SELECT COUNT(*) AS count FROM variable_definitions WHERE study_active=0').get().count, ...diff }))
+  db().close()
+}
+main().catch((error) => { console.error(error); process.exitCode = 1 })

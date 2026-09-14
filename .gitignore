@@ -3,6 +3,7 @@ node_modules/
 data/*.sqlite
 data/*.sqlite-*
 data/*.xlsx
+data/schema-backups/
 tsconfig.tsbuildinfo
 
 # v0 sandbox internal files

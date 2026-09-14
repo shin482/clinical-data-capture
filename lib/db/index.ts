@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import path from 'node:path'
 import fs from 'node:fs'
+import { migrateStudySchema } from './study-migration'
 
 export type VariableDefinition = {
   variableKey: string
@@ -50,6 +51,8 @@ database.exec(`
 // Additive migration keeps existing values and old API clients compatible.
 const valueColumns = database.prepare('PRAGMA table_info(clinical_values)').all() as { name: string }[]
 if (!valueColumns.some((column) => column.name === 'missing_reason')) database.exec('ALTER TABLE clinical_values ADD COLUMN missing_reason TEXT')
+
+migrateStudySchema(database)
 
 export function db() { return database }
 

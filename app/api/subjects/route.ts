@@ -6,7 +6,7 @@ import type { Visit } from '@/lib/crf-metadata'
 
 export function GET() {
   const rows = db().prepare(`SELECT s.subject_id, s.updated_at, COUNT(q.id) AS open_queries FROM subjects s LEFT JOIN queries q ON q.subject_id=s.subject_id AND q.status='OPEN' GROUP BY s.id`).all() as { subject_id: string; updated_at: string; open_queries: number }[]
-  const rules = (db().prepare('SELECT * FROM variable_definitions').all() as Record<string, unknown>[]).map(rowToVariable)
+  const rules = (db().prepare('SELECT * FROM variable_definitions WHERE study_active=1').all() as Record<string, unknown>[]).map(rowToVariable)
   const visits = db().prepare('SELECT v.id, s.subject_id, v.timepoint FROM visits v JOIN subjects s ON s.id=v.subject_id').all() as { id: number; subject_id: string; timepoint: Visit }[]
   const entries = db().prepare('SELECT visit_id, variable_key AS variableKey, value, missing_reason AS missingReason FROM clinical_values').all() as (EntryValue & { visit_id: number })[]
   const byVisit = new Map<number, EntryValue[]>()

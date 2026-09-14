@@ -21,7 +21,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ su
   if (body.missingReason && body.value) return NextResponse.json({ error: 'Value and missing reason conflict' }, { status: 400 })
   const missingReason = body.missingReason || null
   const storedValue = missingReason ? null : body.value || ''
-  const variable = db().prepare('SELECT * FROM variable_definitions WHERE variable_key=? AND enabled=1').get(body.variableKey) as Record<string, unknown> | undefined
+  const variable = db().prepare('SELECT * FROM variable_definitions WHERE variable_key=? AND enabled=1 AND study_active=1').get(body.variableKey) as Record<string, unknown> | undefined
   if (!variable) return NextResponse.json({ error: 'Variable is not enabled or does not exist' }, { status: 400 })
   if (!isCollectedAtVisit(rowToVariable(variable), body.timepoint as Visit)) return NextResponse.json({ error: 'Variable is not collected at this visit' }, { status: 400 })
   return db().transaction(() => {

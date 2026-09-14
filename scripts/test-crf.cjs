@@ -130,7 +130,7 @@ async function main() {
   assert.equal(db().prepare('SELECT COUNT(*) AS count FROM audit_logs').get().count, auditCount)
   assert.equal((await save({ variableKey: 'occl_no', timepoint: 'T1', value: '3' })).status, 200)
   const patchRule = require('../app/api/variables/[variableKey]/route.ts').PATCH
-  await patchRule(new Request('http://localhost/api/variables/occl_no', { method: 'PATCH', body: JSON.stringify({ label: 'Visit restriction test' }) }), { params: Promise.resolve({ variableKey: 'occl_no' }) })
+  await patchRule(new Request('http://localhost/api/variables/occl_no', { method: 'PATCH', body: JSON.stringify({ inputGuide: 'Visit restriction test' }) }), { params: Promise.resolve({ variableKey: 'occl_no' }) })
   assert.equal(db().prepare("SELECT timepoint_t2 FROM variable_definitions WHERE variable_key='occl_no'").get().timepoint_t2, 0)
   const auditWithoutUser = await auditApi(new NextRequest('http://localhost/api/audit?subjectId=CRF_TEST&visit=T1&action=EXPORT&user=does-not-exist')).json()
   assert.equal(auditWithoutUser.length, 1)

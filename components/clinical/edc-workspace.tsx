@@ -506,7 +506,7 @@ function Dashboard({ subjects, queries, onOpen, onOpenQueries }: { subjects: Sub
           ))}
         </div>
       </section>
-      <DataEntryProgress subjects={subjects} onOpen={onOpen} />
+      <DataEntryProgress subjects={subjects} />
       </div>
     </div>
   )
@@ -754,7 +754,7 @@ function Detail({
                   <td>
                     {openForRule.length ? (
                       <span className="query-message" id={`query-${rule.variableKey}`}>
-                        {openForRule.map((query) => `${query.timepoint}: ${query.message}`).join(' • ')}
+                        {openForRule.map((query) => <span className="query-line" key={`${query.variable_key}-${query.timepoint}-${query.query_type}`}>{query.timepoint}: {query.message}</span>)}
                       </span>
                     ) : (
                       <span className="muted">—</span>

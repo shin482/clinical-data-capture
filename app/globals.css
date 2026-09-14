@@ -116,7 +116,8 @@ button.strip-query[aria-pressed="true"] { background: #e0eeed; }
 .detail-content :is(input, select, button, section):focus-visible { outline: 2px solid #087f83; outline-offset: 2px; }
 
 /* Workspace review and navigation states. */
-.query-line { display: block; margin-bottom: 8px; overflow-wrap: anywhere; white-space: normal; }
+.query-line { display: block; overflow-wrap: anywhere; white-space: normal; }
+.query-line + .query-line { margin-top: 3px; }
 .selected-subject td { background: #e1f3ef; font-weight: 600; }
 .selected-subject td:first-child { box-shadow: inset 3px 0 #168575; }
 .query-highlight td { background: #d5eee7 !important; transition: background .3s ease; }
@@ -174,11 +175,14 @@ tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }
 .progress-controls { display: flex; gap: 10px; padding: 0 20px 10px; align-items: center; }
 .subject-combobox { position: relative; flex: 1; min-width: 0; }
 .subject-combobox input { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; }
-.subject-options { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; max-height: 240px; overflow-y: auto; list-style: none; padding: 4px; margin: 4px 0; background: white; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px #19384422; }
-.subject-options button { width: 100%; border: 0; padding: 9px; background: transparent; text-align: left; color: inherit; }
-.subject-options .active-option, .subject-options [aria-selected="true"] { background: #e1f3ef; }
+.subject-select-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 4px; background: white; color: var(--foreground); font-size: 12px; text-align: left; }
+.subject-dropdown { position: absolute; top: 100%; left: 0; right: 0; z-index: 5; padding: 6px; margin-top: 4px; background: white; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px #19384422; }
+.subject-options { max-height: 240px; overflow-y: auto; list-style: none; padding: 2px; margin: 4px 0 0; }
+.subject-options button { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; padding: 9px; background: transparent; text-align: left; color: inherit; }
+.subject-options .active-option { outline: 1px solid var(--border); outline-offset: -1px; border-radius: 3px; }
 .field-progress { margin: 16px 0; }
 .field-progress > div:first-child { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 12px; color: #41616d; }
 .subject-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
-.subject-filter-bar .filter-box { display: flex; flex-direction: column; gap: 6px; min-width: 170px; flex: 1 1 170px; margin: 0; padding: 10px 12px; background: white; border: 1px solid var(--border); border-radius: 5px; font-size: 11px; color: #647b84; }
-.subject-filter-bar .filter-box select { width: 100%; height: 32px; border: 0; background: white; color: var(--foreground); font-size: 12px; }
+.subject-filter-bar .filter-box { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; margin: 0; padding: 0; background: transparent; border: 0; font-size: 11px; color: #647b84; white-space: nowrap; }
+.subject-filter-bar .filter-box select { width: auto; max-width: 200px; min-width: 90px; height: 30px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 4px; background: white; color: var(--foreground); font-size: 12px; }
+@media (max-width: 480px) { .subject-filter-bar .filter-box { width: 100%; } .subject-filter-bar .filter-box select { flex: 1; min-width: 0; max-width: none; } }

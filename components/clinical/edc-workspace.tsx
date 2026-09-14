@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, ArrowLeft, Check, ChevronDown, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, MoreHorizontal, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
+import { Activity, ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, MoreHorizontal, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
 
-import { inputGuide, sampleVisitDates, sampleVisitNames, type MissingReason, type Visit } from '@/lib/crf-metadata'
+import { inputGuide, sampleVisitDates, type MissingReason, type Visit } from '@/lib/crf-metadata'
 import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, emrReference } from '@/lib/clinical-utils'
+import { getDataEntrySummary, type VisitCompletion } from '@/lib/data-entry'
+import { emptyPageAccess, isProtectedPage, pageSessionKeys, readPageAccess, type ProtectedPage } from '@/lib/page-access'
 import { CrfField } from './crf-field'
 type SaveStatus = 'saving' | 'saved' | 'failed'
 
@@ -26,7 +28,7 @@ type Rule = {
   emrLocation: string
 }
 
-type Subject = { subject_id: string; updated_at: string; open_queries: number }
+type Subject = { subject_id: string; updated_at: string; open_queries: number; visit_completion: VisitCompletion }
 type VisitData = { id: number; timepoint: Visit; visitDate: string | null; name?: string }
 type QueryRow = {
   form_name: string
@@ -159,7 +161,7 @@ export default function EdcWorkspace() {
   const [detailLoading, setDetailLoading] = useState(false)
   const selectedSubject = useRef(subject)
   selectedSubject.current = subject
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [pageAccess, setPageAccess] = useState(emptyPageAccess)
   const timers = useRef<Record<string, number>>({})
 
   const notify = (message: string) => {
@@ -171,6 +173,7 @@ export default function EdcWorkspace() {
     const response = await fetch('/api/variables')
     const data = await response.json()
     setRules(data.map(ruleFromApi))
+    await refreshSubjects()
   }
 
   const refreshSubjects = async () => {
@@ -186,10 +189,10 @@ export default function EdcWorkspace() {
     return data as QueryRow[]
   }
 
-  const [adminTarget, setAdminTarget] = useState<string | null>(null)
+  const [adminTarget, setAdminTarget] = useState<ProtectedPage | null>(null)
   const [queryTarget, setQueryTarget] = useState<QueryRow | null>(null)
   const refreshAdminStatus = async () => {
-    try { setIsAdmin(sessionStorage.getItem('edc-admin') === 'true') } catch { setIsAdmin(false) }
+    try { setPageAccess(readPageAccess(sessionStorage)) } catch { setPageAccess(emptyPageAccess) }
   }
 
   const loadSubjectDetail = async (targetSubject: string) => {
@@ -313,7 +316,7 @@ export default function EdcWorkspace() {
   )
 
   const handleNavClick = (label: string) => {
-    if (['Rule Master', 'Audit Trail'].includes(label) && !isAdmin) { setAdminTarget(label); return }
+    if (isProtectedPage(label) && !pageAccess[label]) { setAdminTarget(label); return }
     setActive(label)
   }
 
@@ -328,7 +331,6 @@ export default function EdcWorkspace() {
       }
 
       await refreshRules()
-      await refreshSubjects()
       await refreshQueries()
       await refreshAdminStatus()
     })()
@@ -363,7 +365,6 @@ export default function EdcWorkspace() {
         queries={queries}
         onOpen={(id) => openSubject(id)}
         onOpenQueries={() => setActive('Queries')}
-        onOpenSubjects={() => setActive('Subjects')}
       />
     ) : active === 'Subjects' ? (
       <Subjects subjects={subjects} onOpen={openSubject} />
@@ -388,11 +389,11 @@ export default function EdcWorkspace() {
     ) : active === 'Queries' ? (
       <Queries queries={queries} subjects={subjects} onOpen={(query) => { void openSubject(query.subject_id, query) }} />
     ) : active === 'Rule Master' ? (
-      isAdmin ? <Rules rules={rules} refresh={refreshRules} notify={notify} /> : null
+      pageAccess['Rule Master'] ? <Rules rules={rules} refresh={refreshRules} notify={notify} /> : null
     ) : active === 'Export' ? (
       <Export subject={subject} subjects={subjects} />
     ) : active === 'Audit Trail' ? (
-      <AuditTrail subjects={subjects} />
+      pageAccess['Audit Trail'] ? <AuditTrail subjects={subjects} /> : null
     ) : (
       <AdminPage title={active} />
     )
@@ -420,7 +421,6 @@ export default function EdcWorkspace() {
             <span className="eyebrow">CURRENT SITE</span>
             <strong>EWH · 이화의료원</strong>
           </div>
-          <ChevronDown size={15} />
         </div>
 
         <div className="nav-label">WORKSPACE</div>
@@ -455,7 +455,7 @@ export default function EdcWorkspace() {
             <div className="avatar">MJ</div>
             <div>
               <strong>Minji Jung</strong>
-              <span>{isAdmin ? 'Site Admin' : 'Data Entry'}</span>
+              <span>{pageAccess['Rule Master'] ? 'Rule Master access' : pageAccess['Audit Trail'] ? 'Audit Trail access' : 'Data Entry'}</span>
             </div>
             <MoreHorizontal size={17} />
           </div>
@@ -491,8 +491,8 @@ export default function EdcWorkspace() {
 
         {content}
         {adminTarget && <AdminAccessModal target={adminTarget} onCancel={() => setAdminTarget(null)} onSuccess={() => {
-          try { sessionStorage.setItem('edc-admin', 'true') } catch {}
-          setIsAdmin(true); setActive(adminTarget); setAdminTarget(null)
+          try { sessionStorage.setItem(pageSessionKeys[adminTarget], 'true') } catch {}
+          setPageAccess((current) => ({ ...current, [adminTarget]: true })); setActive(adminTarget); setAdminTarget(null)
         }} />}
         {toast && <div className="toast">{toast}</div>}
       </main>
@@ -500,21 +500,17 @@ export default function EdcWorkspace() {
   )
 }
 
-function Dashboard({ subjects, queries, onOpen, onOpenQueries, onOpenSubjects }: { subjects: Subject[]; queries: QueryRow[]; onOpen: (subjectId: string) => void; onOpenQueries: () => void; onOpenSubjects: () => void }) {
+function Dashboard({ subjects, queries, onOpen, onOpenQueries }: { subjects: Subject[]; queries: QueryRow[]; onOpen: (subjectId: string) => void; onOpenQueries: () => void }) {
+  const summary = getDataEntrySummary(subjects)
   const openQueryCount = getOpenQueryCount(queries)
   const actions = subjects.map((item) => ({ ...item, open_queries: getOpenQueryCount(queries.filter((q) => q.subject_id === item.subject_id)) })).filter((item) => item.open_queries > 0)
 
   return (
-    <div className="content">
+    <div className="content dashboard-content">
       <PageHeading
         eyebrow="STUDY OVERVIEW"
         title="Clinical workspace"
         subtitle="Local SQLite study overview"
-        action={
-          <button className="primary-btn" type="button" onClick={onOpenSubjects}>
-            <Plus size={16} /> Open subject
-          </button>
-        }
       />
 
       <div className="metrics">
@@ -535,8 +531,11 @@ function Dashboard({ subjects, queries, onOpen, onOpenQueries, onOpenSubjects }:
             <p className="metric-detail">Current unresolved queries</p>
           </div>
         </button>
+        <div className="metric"><div className="metric-mark teal" /><div><p className="eyebrow">DATA ENTRY COMPLETE</p><p className="metric-value">{summary.complete}</p><p className="metric-detail">All required visits entered</p></div></div>
+        <div className="metric"><div className="metric-mark slate" /><div><p className="eyebrow">DATA ENTRY INCOMPLETE</p><p className="metric-value">{summary.incomplete}</p><p className="metric-detail">Required entries remaining</p></div></div>
       </div>
 
+      <div className="dashboard-grid operations-grid">
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -556,6 +555,17 @@ function Dashboard({ subjects, queries, onOpen, onOpenQueries, onOpenSubjects }:
           ))}
         </div>
       </section>
+      <section className="panel">
+        <div className="panel-head"><div><h2>Data Entry Progress</h2><p>Required entries completed per visit</p></div></div>
+        <div className="visit-bars">
+          {summary.visits.map(({ visit, completed, total, percentage }) => <div className="visit-row entry-progress-row" key={visit}>
+            <span className="visit-label">{visit}</span>
+            <div className="bar" role="progressbar" aria-label={`${visit} data entry completion`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${completed} / ${total} (${percentage}%)`}><span style={{ width: `${percentage}%` }} /></div>
+            <strong>{completed} / {total} ({percentage}%)</strong>
+          </div>)}
+        </div>
+      </section>
+      </div>
     </div>
   )
 }
@@ -732,8 +742,7 @@ function Detail({
 
         {allVisits.map((visit) => (
           <div className="strip-visit" key={visit}>
-            <span>{visit} / {visitDates[visit] || sampleVisitDates[visit]}{!visitDates[visit] && ' (sample)'}</span>
-            <small>{visits.find((item) => item.timepoint === visit)?.name || sampleVisitNames[visit]}</small>
+            <span>{visit} / {visitDates[visit] || sampleVisitDates[visit]}</span>
             <input disabled={loading} aria-label={`${visit} 방문일`} type="date" value={visitDates[visit] || ''} onChange={(event) => saveDate(visit, event.target.value)} />
           </div>
         ))}
@@ -763,7 +772,7 @@ function Detail({
               <th>VARIABLE</th>
               <th>INPUT GUIDE</th>
               {showEmr && <th>EMR REFERENCE</th>}
-              {shownVisits.map((visit) => <th key={visit}>{visit}<small className="variable-subtitle">{visitDates[visit] || sampleVisitDates[visit]} {!visitDates[visit] && '(sample)'}</small></th>)}
+              {shownVisits.map((visit) => <th key={visit}>{visit}<small className="variable-subtitle">{visitDates[visit] || sampleVisitDates[visit]}</small></th>)}
               <th>QUERY</th>
             </tr>
           </thead>
@@ -1175,15 +1184,17 @@ function Export({ subject, subjects }: { subject: string; subjects: Subject[] })
 
 function AdminAccessModal({ target, onSuccess, onCancel }: { target: string; onSuccess: () => void; onCancel: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
+  const mounted = useRef(true)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  useEffect(() => { const previous = document.activeElement as HTMLElement; dialog.current?.showModal(); return () => previous?.focus() }, [])
+  useEffect(() => { const previous = document.activeElement as HTMLElement; mounted.current = true; dialog.current?.showModal(); return () => { mounted.current = false; previous?.focus() } }, [])
   return <dialog ref={dialog} className="modal admin-dialog" onCancel={onCancel} aria-labelledby="admin-title">
     <form onSubmit={async (event) => {
       event.preventDefault(); setLoading(true); setError('')
       try {
         const response = await fetch('/api/admin/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+        if (!mounted.current) return
         if (response.ok) onSuccess(); else setError('Incorrect password')
       } catch { setError('Unable to authenticate. Please try again.') } finally { setLoading(false) }
     }}>
@@ -1231,7 +1242,7 @@ function AuditTrail({ subjects }: { subjects: Subject[] }) {
       <PageHeading eyebrow="ADMINISTRATION" title="Audit Trail" subtitle="Search and review data change history" />
 
       <section className="panel" style={{ padding: 20 }}>
-        <div className="filter-grid">
+        <div className="filter-grid audit-filter-grid">
           <label className="field-label">
             Subject ID
             <select value={filters.subjectId} onChange={(event) => setFilters((current) => ({ ...current, subjectId: event.target.value }))}><option value="">All subjects</option>{subjects.map((s) => <option key={s.subject_id}>{s.subject_id}</option>)}</select>

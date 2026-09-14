@@ -24,13 +24,9 @@ export async function GET(request: NextRequest) {
     })
     return row
   })
-  const scopedWhere = [subjectId ? 'subject_id=?' : '', visit ? 'timepoint=?' : ''].filter(Boolean)
-  const scope = scopedWhere.length ? ' WHERE ' + scopedWhere.join(' AND ') : ''
   const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data), 'Data')
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(db().prepare('SELECT * FROM queries' + scope).all(...args)), 'Queries')
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data), 'data')
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(db().prepare('SELECT * FROM variable_definitions ORDER BY display_order').all()), 'Variable Dictionary')
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(db().prepare('SELECT * FROM audit_logs' + scope).all(...args)), 'Audit Trail')
   const output = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' })
   const filename = `${subjectId ? 'subject_' + subjectId.replace(/[^a-zA-Z0-9_-]/g, '_') : 'all_subjects'}_${visit || 'all_visits'}.xlsx`
   db().transaction(() => {

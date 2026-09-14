@@ -41,6 +41,33 @@ async function main() {
   const xlsx = require('xlsx')
   const workbook = xlsx.read(Buffer.from(await exported.arrayBuffer()))
   assert.equal(xlsx.utils.sheet_to_json(workbook.Sheets.Data)[0].occl_t2_missing_reason, 'NOT_DONE')
+  const helpers = require('../lib/clinical-utils.ts')
+  assert.deepEqual(helpers.sortSubjectsNumerically(['10', '2', '1', '3'].map((id) => ({ subject_id: 'Subject ' + id }))).map((s) => s.subject_id), ['Subject 1', 'Subject 2', 'Subject 3', 'Subject 10'])
+  assert.equal(helpers.getSubjectQueryStatus([{ status: 'OPEN' }, { status: 'RESOLVED' }]), 'OPEN')
+  assert.equal(helpers.getSubjectQueryStatus([]), 'RESOLVED')
+  assert.equal(helpers.getSubjectQueryStatus([{ status: 'RESOLVED' }]), 'RESOLVED')
+  const auth = require('../app/api/admin/auth/route.ts').POST
+  for (const [password, expected] of [['incorrect', 401], ['123456', 200]]) {
+    assert.equal((await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password }) }))).status, expected)
+  }
+  assert.equal((await (await require('../app/api/admin/status/route.ts').GET()).json()).isAdmin, false)
+  const exportApi = require('../app/api/export/route.ts').GET
+  const scoped = await exportApi(new NextRequest('http://localhost/api/export?subject=CRF_TEST&visit=T1'))
+  const scopedBook = xlsx.read(Buffer.from(await scoped.arrayBuffer()))
+  assert.equal(xlsx.utils.sheet_to_json(scopedBook.Sheets.Data)[0].occl_t2_missing_reason, undefined)
+  const history = await (await exportApi(new NextRequest('http://localhost/api/export?history=1'))).json()
+  assert.equal(history[0].visit, 'T1')
+  assert.equal(history[0].subject_id, 'CRF_TEST')
+  assert.equal(history[0].status, 'Completed')
+  assert.ok(history[0].id > history[1].id)
+  const beforeInvalid = history.length
+  assert.equal((await exportApi(new NextRequest('http://localhost/api/export?visit=T9'))).status, 400)
+  assert.equal((await (await exportApi(new NextRequest('http://localhost/api/export?history=1'))).json()).length, beforeInvalid)
+  const auditApi = require('../app/api/audit/route.ts').GET
+  const auditRows = await auditApi(new NextRequest('http://localhost/api/audit?subjectId=CRF_TEST&visit=T1&action=EXPORT&user=Minji&from=2000-01-01&to=2100-01-01')).json()
+  assert.equal(auditRows.length, 1)
+  assert.equal(auditRows[0].action, 'EXPORT')
+  console.log('PASS: natural sorting, derived status, password validation, unauthenticated status, scoped export, persistent newest-first history, invalid export exclusion, combined audit filters')
   assert.equal((await save({ value: '1', missingReason: 'NOT_DONE' })).status, 400)
   assert.equal((await save({ value: null, missingReason: 'INVALID' })).status, 400)
   assert.equal((await save({ timepoint: 'T4', value: '1' })).status, 400)

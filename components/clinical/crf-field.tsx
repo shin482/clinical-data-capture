@@ -23,7 +23,7 @@ export function CrfField({ rule, cellKey, value, missingReason, hasQuery, queryI
       step={rule.dataType === 'integer' ? 1 : 'any'} onChange={(event) => onChange(event.target.value)} />}
     <select className="missing-select" aria-label={`${rule.label} ${cellKey.slice(-2)} Missing reason`} value={missingReason || ''}
       onChange={(event) => onChange('', (event.target.value || undefined) as MissingReason | undefined)}>
-      <option value="">일반 값 입력</option>
+      <option value="">No missing reason</option>
       {missingReasons.map(({ code, label }) => <option key={code} value={code}>{label}</option>)}
     </select>
   </div>

@@ -1,9 +1,10 @@
+import { sortSubjectsNumerically } from '@/lib/clinical-utils'
 import { NextRequest, NextResponse } from 'next/server'
 import { db, ensureSubject } from '@/lib/db'
 
 export function GET() {
   const rows = db().prepare(`SELECT s.subject_id, s.updated_at, COUNT(q.id) AS open_queries FROM subjects s LEFT JOIN queries q ON q.subject_id=s.subject_id AND q.status='OPEN' GROUP BY s.id ORDER BY s.updated_at DESC`).all()
-  return NextResponse.json(rows)
+  return NextResponse.json(sortSubjectsNumerically(rows as { subject_id: string }[]))
 }
 
 export async function POST(request: NextRequest) {

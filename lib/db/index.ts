@@ -36,6 +36,7 @@ database.pragma('busy_timeout = 10000')
 database.pragma('journal_mode = WAL')
 
 database.exec(`
+  CREATE TABLE IF NOT EXISTS export_history (id INTEGER PRIMARY KEY AUTOINCREMENT, exported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, user_name TEXT NOT NULL, subject_id TEXT, visit TEXT, file_name TEXT NOT NULL, export_type TEXT NOT NULL DEFAULT 'XLSX', status TEXT NOT NULL DEFAULT 'Completed');
   CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'DATA_ENTRY', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
   CREATE TABLE IF NOT EXISTS subjects (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
   CREATE TABLE IF NOT EXISTS visits (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id INTEGER NOT NULL REFERENCES subjects(id), timepoint TEXT NOT NULL, visit_date TEXT, UNIQUE(subject_id, timepoint));
@@ -55,7 +56,7 @@ export function db() { return database }
 export function ensureSubject(subjectId: string) {
   const normalized = subjectId.trim()
   if (!normalized) throw new Error('Subject ID is required')
-  const subject = database.prepare('INSERT INTO subjects (subject_id) VALUES (?) ON CONFLICT(subject_id) DO UPDATE SET updated_at=CURRENT_TIMESTAMP RETURNING id, subject_id').get(normalized) as { id: number; subject_id: string }
+  const subject = database.prepare('INSERT INTO subjects (subject_id) VALUES (?) ON CONFLICT(subject_id) DO UPDATE SET subject_id=excluded.subject_id RETURNING id, subject_id').get(normalized) as { id: number; subject_id: string }
   const insertVisit = database.prepare('INSERT INTO visits (subject_id, timepoint) VALUES (?, ?) ON CONFLICT(subject_id, timepoint) DO NOTHING')
   database.transaction(() => ['T1', 'T2', 'T3'].forEach((timepoint) => insertVisit.run(subject.id, timepoint)))()
   return subject

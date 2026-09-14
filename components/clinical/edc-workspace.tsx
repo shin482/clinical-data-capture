@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowLeft, Check, ChevronDown, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, MoreHorizontal, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
 
-import { inputGuide, mockEmrReferences, sampleVisitNames, type MissingReason, type Visit } from '@/lib/crf-metadata'
+import { inputGuide, sampleVisitDates, sampleVisitNames, type MissingReason, type Visit } from '@/lib/crf-metadata'
+import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, emrReference } from '@/lib/clinical-utils'
 import { CrfField } from './crf-field'
 type SaveStatus = 'saving' | 'saved' | 'failed'
 
@@ -28,6 +29,8 @@ type Rule = {
 type Subject = { subject_id: string; updated_at: string; open_queries: number }
 type VisitData = { id: number; timepoint: Visit; visitDate: string | null; name?: string }
 type QueryRow = {
+  form_name: string
+  variable_name: string
   subject_id: string
   timepoint: Visit
   variable_key: string
@@ -173,7 +176,7 @@ export default function EdcWorkspace() {
   const refreshSubjects = async () => {
     const response = await fetch('/api/subjects')
     const data = await response.json()
-    setSubjects(data)
+    setSubjects(sortSubjectsNumerically(data))
   }
 
   const refreshQueries = async () => {
@@ -183,14 +186,10 @@ export default function EdcWorkspace() {
     return data as QueryRow[]
   }
 
+  const [adminTarget, setAdminTarget] = useState<string | null>(null)
+  const [queryTarget, setQueryTarget] = useState<QueryRow | null>(null)
   const refreshAdminStatus = async () => {
-    try {
-      const response = await fetch('/api/admin/status')
-      const data = await response.json()
-      setIsAdmin(Boolean(data.isAdmin))
-    } catch {
-      setIsAdmin(false)
-    }
+    try { setIsAdmin(sessionStorage.getItem('edc-admin') === 'true') } catch { setIsAdmin(false) }
   }
 
   const loadSubjectDetail = async (targetSubject: string) => {
@@ -233,7 +232,8 @@ export default function EdcWorkspace() {
     }
   }
 
-  const openSubject = async (id: string) => {
+  const openSubject = async (id: string, target: QueryRow | null = null) => {
+    setQueryTarget(target)
     const response = await fetch('/api/subjects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -312,30 +312,8 @@ export default function EdcWorkspace() {
     [rules, queryOnly, subjectQueries],
   )
 
-  const handleNavClick = async (label: string) => {
-    if (label === 'Rule Master') {
-      setActive('Rule Master')
-      return
-    }
-
-    if (label === 'Audit Trail' && !isAdmin) {
-      const password = window.prompt('관리자 비밀번호를 입력하세요.')
-      if (!password) return
-
-      const response = await fetch('/api/admin/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-
-      if (!response.ok) {
-        notify('관리자 인증에 실패했습니다.')
-        return
-      }
-
-      setIsAdmin(true)
-    }
-
+  const handleNavClick = (label: string) => {
+    if (['Rule Master', 'Audit Trail'].includes(label) && !isAdmin) { setAdminTarget(label); return }
     setActive(label)
   }
 
@@ -391,6 +369,8 @@ export default function EdcWorkspace() {
       <Subjects subjects={subjects} onOpen={openSubject} />
     ) : active === 'Subject detail' ? (
       <Detail
+        key={`${subject}-${queryTarget?.variable_key || ''}-${queryTarget?.timepoint || ''}`}
+        target={queryTarget}
         subject={subject}
         rules={visibleRules}
         values={values}
@@ -406,13 +386,13 @@ export default function EdcWorkspace() {
         onBack={() => setActive('Subjects')}
       />
     ) : active === 'Queries' ? (
-      <Queries queries={queries} />
+      <Queries queries={queries} subjects={subjects} onOpen={(query) => { void openSubject(query.subject_id, query) }} />
     ) : active === 'Rule Master' ? (
-      isAdmin ? <Rules rules={rules} refresh={refreshRules} notify={notify} /> : <RuleMasterLogin onSuccess={() => { setIsAdmin(true); setActive('Rule Master') }} />
+      isAdmin ? <Rules rules={rules} refresh={refreshRules} notify={notify} /> : null
     ) : active === 'Export' ? (
       <Export subject={subject} subjects={subjects} />
     ) : active === 'Audit Trail' ? (
-      <AuditTrail />
+      <AuditTrail subjects={subjects} />
     ) : (
       <AdminPage title={active} />
     )
@@ -510,6 +490,10 @@ export default function EdcWorkspace() {
         </header>
 
         {content}
+        {adminTarget && <AdminAccessModal target={adminTarget} onCancel={() => setAdminTarget(null)} onSuccess={() => {
+          try { sessionStorage.setItem('edc-admin', 'true') } catch {}
+          setIsAdmin(true); setActive(adminTarget); setAdminTarget(null)
+        }} />}
         {toast && <div className="toast">{toast}</div>}
       </main>
     </div>
@@ -517,7 +501,8 @@ export default function EdcWorkspace() {
 }
 
 function Dashboard({ subjects, queries, onOpen, onOpenQueries, onOpenSubjects }: { subjects: Subject[]; queries: QueryRow[]; onOpen: (subjectId: string) => void; onOpenQueries: () => void; onOpenSubjects: () => void }) {
-  const openQueryCount = queries.filter((query) => query.status === 'OPEN').length
+  const openQueryCount = getOpenQueryCount(queries)
+  const actions = subjects.map((item) => ({ ...item, open_queries: getOpenQueryCount(queries.filter((q) => q.subject_id === item.subject_id)) })).filter((item) => item.open_queries > 0)
 
   return (
     <div className="content">
@@ -555,16 +540,17 @@ function Dashboard({ subjects, queries, onOpen, onOpenQueries, onOpenSubjects }:
       <section className="panel">
         <div className="panel-head">
           <div>
-            <h2>Recent subjects</h2>
-            <p>Latest activity at this site</p>
+            <h2>Action Required</h2>
+            <p>Subjects with open queries</p>
           </div>
         </div>
         <div className="mini-table">
-          {subjects.map((item) => (
+          {!actions.length && <p className="crf-empty">All subjects are up to date</p>}
+          {actions.map((item) => (
             <button className="mini-row" key={item.subject_id} type="button" onClick={() => onOpen(item.subject_id)}>
               <strong>{item.subject_id}</strong>
               <span>{item.updated_at}</span>
-              <StatusPill tone={item.open_queries ? 'warn' : 'good'}>{item.open_queries ? `${item.open_queries} queries` : 'Up to date'}</StatusPill>
+              <StatusPill tone={item.open_queries ? 'warn' : 'good'}>{item.open_queries ? `Open Queries: ${item.open_queries}` : 'Up to date'}</StatusPill>
               <ChevronRight size={15} />
             </button>
           ))}
@@ -616,7 +602,7 @@ function Subjects({ subjects, onOpen }: { subjects: Subject[]; onOpen: (id: stri
             {subjects
               .filter((item) => item.subject_id.toLowerCase().includes(search.toLowerCase()))
               .map((item) => (
-                <tr key={item.subject_id} onClick={() => onOpen(item.subject_id)}>
+                <tr key={item.subject_id} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(item.subject_id) }} onClick={() => onOpen(item.subject_id)}>
                   <td>
                     <strong className="subject-id">{item.subject_id}</strong>
                   </td>
@@ -669,6 +655,7 @@ function Subjects({ subjects, onOpen }: { subjects: Subject[]; onOpen: (id: stri
 }
 
 function Detail({
+  target,
   subject,
   rules,
   values,
@@ -683,6 +670,7 @@ function Detail({
   setQueryOnly,
   onBack,
 }: {
+  target: QueryRow | null
   subject: string
   rules: Rule[]
   values: Record<string, string>
@@ -698,6 +686,19 @@ function Detail({
   onBack: () => void
 }) {
   const [showEmr, setShowEmr] = useState(true)
+  const [sort, setSort] = useState('default')
+  const [form, setForm] = useState(target?.form_name || '')
+  const [visitFilter, setVisitFilter] = useState<string>(target?.timepoint || '')
+  const [highlight, setHighlight] = useState('')
+  const shownVisits = allVisits.filter((visit) => !visitFilter || visit === visitFilter)
+  const shownRules = rules.filter((rule) => !form || rule.section === form).sort((a, b) => sort === 'default' ? 0 : emrReference(a).localeCompare(emrReference(b), 'en', { numeric: true }) * (sort === 'desc' ? -1 : 1))
+  useEffect(() => {
+    if (loading || !target || target.subject_id !== subject) return
+    const id = `${target.variable_key}-${target.timepoint}`
+    const timer = window.setTimeout(() => { const el = document.getElementById(id); el?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); el?.focus({ preventScroll: true }); setHighlight(target.variable_key) }, 100)
+    const clear = window.setTimeout(() => setHighlight(''), 3500)
+    return () => { clearTimeout(timer); clearTimeout(clear) }
+  }, [target, subject, loading])
   const visitDates = Object.fromEntries(allVisits.map((visit) => [visit, values[`vdt-${visit}`] ?? visits.find((item) => item.timepoint === visit)?.visitDate ?? '']))
   const saveDate = (visit: Visit, value: string) => update(`vdt-${visit}`, value)
 
@@ -731,7 +732,7 @@ function Detail({
 
         {allVisits.map((visit) => (
           <div className="strip-visit" key={visit}>
-            <span>{visit}</span>
+            <span>{visit} / {visitDates[visit] || sampleVisitDates[visit]}{!visitDates[visit] && ' (sample)'}</span>
             <small>{visits.find((item) => item.timepoint === visit)?.name || sampleVisitNames[visit]}</small>
             <input disabled={loading} aria-label={`${visit} 방문일`} type="date" value={visitDates[visit] || ''} onChange={(event) => saveDate(visit, event.target.value)} />
           </div>
@@ -744,6 +745,9 @@ function Detail({
       </div>
 
       <div className="crf-toolbar">
+        <label className="field-label">Sort by<select value={sort} onChange={(e) => setSort(e.target.value)}><option value="default">Default</option><option value="asc">EMR Reference A to Z</option><option value="desc">EMR Reference Z to A</option></select></label>
+        <label className="field-label">Form<select value={form} onChange={(e) => setForm(e.target.value)}><option value="">All forms</option>{Array.from(new Set(rules.map((r) => r.section))).map((name) => <option key={name}>{name}</option>)}</select></label>
+        <label className="field-label">Visit<select value={visitFilter} onChange={(e) => setVisitFilter(e.target.value)}><option value="">All visits</option>{allVisits.map((v) => <option key={v}>{v}</option>)}</select></label>
         <label className="check-control">
           <input type="checkbox" checked={queryOnly} onChange={(event) => setQueryOnly(event.target.checked)} />
           Query 있는 항목만 보기
@@ -759,34 +763,32 @@ function Detail({
               <th>VARIABLE</th>
               <th>INPUT GUIDE</th>
               {showEmr && <th>EMR REFERENCE</th>}
-              <th>T1</th>
-              <th>T2</th>
-              <th>T3</th>
+              {shownVisits.map((visit) => <th key={visit}>{visit}<small className="variable-subtitle">{visitDates[visit] || sampleVisitDates[visit]} {!visitDates[visit] && '(sample)'}</small></th>)}
               <th>QUERY</th>
             </tr>
           </thead>
           <tbody>
-            {!rules.length && <tr><td colSpan={showEmr ? 7 : 6} className="crf-empty">{queryOnly ? '현재 열린 Query가 없습니다.' : '표시할 항목이 없습니다.'}</td></tr>}
-            {rules.map((rule) => {
+            {!shownRules.length && <tr><td colSpan={shownVisits.length + (showEmr ? 4 : 3)} className="crf-empty">{queryOnly ? '현재 열린 Query가 없습니다.' : '표시할 항목이 없습니다.'}</td></tr>}
+            {shownRules.map((rule) => {
               const openForRule = queries.filter((query) => query.subject_id === subject && query.variable_key === rule.variableKey && query.status === 'OPEN').sort((a, b) => a.timepoint.localeCompare(b.timepoint))
 
               return (
-                <tr key={rule.variableKey} className={openForRule.length ? "queried-row" : undefined}>
+                <tr key={rule.variableKey} className={`${openForRule.length ? "queried-row" : ""} ${highlight === rule.variableKey ? "query-highlight" : ""}`}>
                   <td>
                     <strong className="variable-main">{rule.label}</strong>
                     <small className="variable-subtitle">{rule.variableKey}</small>
                   </td>
                   <td className="input-guide"><span title={inputGuide(rule)}>{inputGuide(rule)}</span></td>
-                  {showEmr && <td className="emr-reference">{rule.emrLocation || (mockEmrReferences[rule.variableKey] ? <><small className="mock-label">샘플</small>{mockEmrReferences[rule.variableKey]}</> : '—')}</td>}
+                  {showEmr && <td className="emr-reference">{!rule.emrLocation && <small className="mock-label">Sample</small>}{emrReference(rule)}</td>}
 
-                  {allVisits.map((visit) => {
+                  {shownVisits.map((visit) => {
                     const currentKey = `${rule.variableKey}-${visit}`
                     const currentValue = values[currentKey] ?? ''
 
                     return (
                       <td key={currentKey}>
                         <CrfField rule={rule} cellKey={currentKey} value={currentValue} missingReason={missing[currentKey]}
-                          hasQuery={openForRule.some((query) => query.timepoint === visit)} queryId={`query-${currentKey}`}
+                          hasQuery={openForRule.some((query) => query.timepoint === visit)} queryId={`query-${rule.variableKey}`}
                           onChange={(value, reason) => update(currentKey, value, reason)} />
                       </td>
                     )
@@ -794,7 +796,7 @@ function Detail({
 
                   <td>
                     {openForRule.length ? (
-                      <span className="query-message">
+                      <span className="query-message" id={`query-${rule.variableKey}`}>
                         {openForRule.map((query) => `${query.timepoint}: ${query.message}`).join(' • ')}
                       </span>
                     ) : (
@@ -811,29 +813,22 @@ function Detail({
   )
 }
 
-function Queries({ queries }: { queries: QueryRow[] }) {
-  const summary = useMemo(() => {
-    const map = new Map<string, { subject_id: string; total: number; open: number; closed: number; latestDate: string; latestStatus: string }>()
-
-    queries.forEach((query) => {
-      const row = map.get(query.subject_id) || { subject_id: query.subject_id, total: 0, open: 0, closed: 0, latestDate: '', latestStatus: '' }
-      row.total += 1
-      row.open += query.status === 'OPEN' ? 1 : 0
-      row.closed += query.status !== 'OPEN' ? 1 : 0
-      row.latestDate = query.detected_at
-      row.latestStatus = query.status
-      map.set(query.subject_id, row)
-    })
-
-    return Array.from(map.values()).sort((a, b) => b.latestDate.localeCompare(a.latestDate))
-  }, [queries])
+function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects: Subject[]; onOpen: (query: QueryRow) => void }) {
+  const [statusFilter, setStatusFilter] = useState('Open')
+  const summary = useMemo(() => sortSubjectsNumerically(subjects.map((subject) => {
+    const items = queries.filter((q) => q.subject_id === subject.subject_id)
+    const open = getOpenQueryCount(items)
+    return { subject_id: subject.subject_id, total: items.length, open, closed: items.length - open, latestDate: items.map((q) => q.resolved_at || q.detected_at).sort().at(-1) || '', latestStatus: getSubjectQueryStatus(items) }
+  })).filter((item) => statusFilter === 'All' || (statusFilter === 'Open' ? item.open > 0 : item.open === 0 && item.total > 0)), [queries, subjects, statusFilter])
 
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
+  useEffect(() => { if (!summary.some((item) => item.subject_id === selectedSubject)) setSelectedSubject(summary[0]?.subject_id || null) }, [summary, selectedSubject])
   const selectedQueries = selectedSubject ? queries.filter((query) => query.subject_id === selectedSubject) : []
 
   return (
     <div className="content">
       <PageHeading eyebrow="DATA QUALITY" title="Query management" subtitle="All Query history stored in local SQLite" />
+      <label className="field-label toolbar">Status<select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>{['All', 'Open', 'Resolved'].map((status) => <option key={status}>{status}</option>)}</select></label>
 
       <section className="panel table-panel">
         <table>
@@ -849,7 +844,7 @@ function Queries({ queries }: { queries: QueryRow[] }) {
           </thead>
           <tbody>
             {summary.map((item) => (
-              <tr key={item.subject_id} onClick={() => setSelectedSubject(item.subject_id)}>
+              <tr key={item.subject_id} className={selectedSubject === item.subject_id ? "selected-subject" : ""} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setSelectedSubject(item.subject_id) }} onClick={() => setSelectedSubject(item.subject_id)}>
                 <td>
                   <strong className="subject-id">{item.subject_id}</strong>
                 </td>
@@ -878,6 +873,7 @@ function Queries({ queries }: { queries: QueryRow[] }) {
             <thead>
               <tr>
                 <th>VISIT</th>
+                <th>FORM</th>
                 <th>VARIABLE</th>
                 <th>TYPE</th>
                 <th>MESSAGE</th>
@@ -887,15 +883,15 @@ function Queries({ queries }: { queries: QueryRow[] }) {
             </thead>
             <tbody>
               {selectedQueries.map((query) => (
-                <tr key={`${query.subject_id}-${query.timepoint}-${query.variable_key}-${query.detected_at}`}>
+                <tr key={`${query.subject_id}-${query.timepoint}-${query.variable_key}-${query.query_type}`} tabIndex={0} onClick={() => onOpen(query)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(query) }}>
                   <td>{query.timepoint}</td>
-                  <td>{query.variable_key}</td>
+                  <td>{query.form_name}</td><td><button className="back-btn" onClick={(e) => { e.stopPropagation(); onOpen(query) }}>{query.variable_name || query.variable_key}</button></td>
                   <td>{query.query_type}</td>
                   <td>{query.message}</td>
                   <td>
                     <StatusPill tone={query.status === 'OPEN' ? 'warn' : 'good'}>{query.status}</StatusPill>
                   </td>
-                  <td>{formatDateTime(query.detected_at)}</td>
+                  <td>{formatDateTime(query.resolved_at || query.detected_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -1090,6 +1086,29 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
 function Export({ subject, subjects }: { subject: string; subjects: Subject[] }) {
   const [selectedSubject, setSelectedSubject] = useState(subject || '')
   const [selectedVisit, setSelectedVisit] = useState('ALL')
+  const [history, setHistory] = useState<{ id: number; exported_at: string; user_name: string; subject_id: string | null; visit: string | null; file_name: string; export_type: string; status: string }[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const refreshHistory = async () => {
+    const response = await fetch('/api/export?history=1', { cache: 'no-store' })
+    if (!response.ok) throw new Error('Export history could not be loaded')
+    setHistory(await response.json())
+  }
+  useEffect(() => { void refreshHistory().catch((e) => setError(e.message)) }, [])
+  const download = async () => {
+    setBusy(true); setError('')
+    try {
+      const response = await fetch(exportQuery, { cache: 'no-store' })
+      if (!response.ok) throw new Error('Export failed')
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url; link.download = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || 'edc-export.xlsx'
+      document.body.appendChild(link); link.click(); link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      await refreshHistory()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Export failed') } finally { setBusy(false) }
+  }
 
   const exportQuery = useMemo(() => {
     const params = new URLSearchParams()
@@ -1140,90 +1159,43 @@ function Export({ subject, subjects }: { subject: string; subjects: Subject[] })
             </select>
           </label>
 
-          <a className="primary-btn" href={exportQuery}>
-            <Download size={15} /> Download .xlsx
-          </a>
+          <button className="primary-btn" disabled={busy} onClick={() => void download()}><Download size={15} /> {busy ? 'Exporting...' : 'Download .xlsx'}</button>
         </div>
+      </section>
+      {error && <p role="alert">{error}</p>}
+      <section className="panel table-panel export-history" style={{ marginTop: 20 }}>
+        <div className="panel-head"><h2>Export History</h2></div>
+        <table><thead><tr>{['Export date/time', 'User', 'Subject', 'Visit', 'File name', 'Export type', 'Status'].map((label) => <th key={label}>{label}</th>)}</tr></thead>
+          <tbody>{history.map((row) => <tr key={row.id}><td>{formatDateTime(row.exported_at)}</td><td>{row.user_name}</td><td>{row.subject_id || 'All subjects'}</td><td>{row.visit || 'All visits'}</td><td>{row.file_name}</td><td>{row.export_type}</td><td><StatusPill tone="good">{row.status}</StatusPill></td></tr>)}{!history.length && <tr><td colSpan={7}>No exports yet</td></tr>}</tbody>
+        </table>
       </section>
     </div>
   )
 }
 
-function RuleMasterLogin({ onSuccess }: { onSuccess: () => void }) {
+function AdminAccessModal({ target, onSuccess, onCancel }: { target: string; onSuccess: () => void; onCancel: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!password.trim()) {
-      setError('비밀번호를 입력하세요.')
-      return
-    }
-
-    setLoading(true)
-    setError('')
-
-    try {
-      const response = await fetch('/api/admin/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      })
-
-      const data = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        setError(data.error || '관리자 인증에 실패했습니다.')
-        return
-      }
-
-      onSuccess()
-    } catch {
-      setError('인증 요청 중 오류가 발생했습니다.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="content">
-      <section className="panel rule-master-login-panel">
-        <div className="rule-master-login-card">
-          <div className="rule-master-login-icon">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M7 10V8a5 5 0 0 1 10 0v2M6 10h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </div>
-
-          <h2>Rule Master</h2>
-          <p>Administrator Access</p>
-
-          <form className="rule-master-login-form" onSubmit={handleSubmit}>
-            <label className="rule-master-login-label">
-              비밀번호 / Password
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                placeholder="Enter password"
-                autoFocus
-              />
-            </label>
-
-            {error && <div className="rule-master-login-error">{error}</div>}
-
-            <button type="submit" className="primary-btn rule-master-login-button" disabled={loading}>
-              {loading ? '확인 중...' : '확인'}
-            </button>
-          </form>
-        </div>
-      </section>
-    </div>
-  )
+  useEffect(() => { const previous = document.activeElement as HTMLElement; dialog.current?.showModal(); return () => previous?.focus() }, [])
+  return <dialog ref={dialog} className="modal admin-dialog" onCancel={onCancel} aria-labelledby="admin-title">
+    <form onSubmit={async (event) => {
+      event.preventDefault(); setLoading(true); setError('')
+      try {
+        const response = await fetch('/api/admin/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
+        if (response.ok) onSuccess(); else setError('Incorrect password')
+      } catch { setError('Unable to authenticate. Please try again.') } finally { setLoading(false) }
+    }}>
+      <div className="panel-head"><h2 id="admin-title">{target} / Administrator Access</h2></div>
+      <label className="field-label">Password<input autoFocus required type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+      {error && <p role="alert" className="rule-master-login-error">{error}</p>}
+      <div className="detail-actions"><button type="button" className="outline-btn" onClick={onCancel}>Cancel</button><button className="primary-btn" disabled={loading}>Continue</button></div>
+    </form>
+  </dialog>
 }
 
-function AuditTrail() {
+function AuditTrail({ subjects }: { subjects: Subject[] }) {
   const [rows, setRows] = useState<AuditLogRow[]>([])
   const [filters, setFilters] = useState({
     subjectId: '',
@@ -1235,7 +1207,7 @@ function AuditTrail() {
     action: '',
   })
 
-  const loadAuditTrail = async () => {
+  const loadAuditTrail = async (clear = false) => {
     const params = new URLSearchParams()
     if (filters.subjectId) params.set('subjectId', filters.subjectId)
     if (filters.from) params.set('from', filters.from)
@@ -1245,7 +1217,7 @@ function AuditTrail() {
     if (filters.variable) params.set('variable', filters.variable)
     if (filters.action) params.set('action', filters.action)
 
-    const response = await fetch(`/api/audit${params.size ? `?${params.toString()}` : ''}`)
+    const response = await fetch(`/api/audit${!clear && params.size ? `?${params.toString()}` : ''}`)
     const data = await response.json()
     setRows(data)
   }
@@ -1262,7 +1234,7 @@ function AuditTrail() {
         <div className="filter-grid">
           <label className="field-label">
             Subject ID
-            <input value={filters.subjectId} onChange={(event) => setFilters((current) => ({ ...current, subjectId: event.target.value }))} />
+            <select value={filters.subjectId} onChange={(event) => setFilters((current) => ({ ...current, subjectId: event.target.value }))}><option value="">All subjects</option>{subjects.map((s) => <option key={s.subject_id}>{s.subject_id}</option>)}</select>
           </label>
           <label className="field-label">
             From
@@ -1301,14 +1273,14 @@ function AuditTrail() {
               <option value="CREATE">Create</option>
               <option value="UPDATE">Update</option>
               <option value="DELETE">Delete</option>
-              <option value="VALUE_CHANGE">Value change</option>
+              <option value="VALUE_CHANGE">Data Change</option><option value="QUERY">Query</option><option value="STATUS_CHANGE">Status Change</option><option value="USER_ACTION">User Action</option><option value="EXPORT">Export</option>
             </select>
           </label>
 
           <div className="filter-actions">
             <button type="button" className="primary-btn" onClick={() => void loadAuditTrail()}>
               Apply filters
-            </button>
+            </button><button type="button" className="outline-btn" onClick={() => { setFilters({ subjectId: '', from: '', to: '', user: '', visit: '', variable: '', action: '' }); void loadAuditTrail(true) }}>Clear filters</button>
           </div>
         </div>
       </section>

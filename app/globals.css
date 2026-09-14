@@ -115,3 +115,15 @@ button.strip-query[aria-pressed="true"] { background: #e0eeed; }
 .save-state.failed span { background: #ac493e; }
 .crf-table-panel .crf-empty { padding: 32px; text-align: center; }
 .detail-content :is(input, select, button, section):focus-visible { outline: 2px solid #087f83; outline-offset: 2px; }
+
+/* Workspace review and navigation states. */
+.query-line { display: block; margin-bottom: 8px; overflow-wrap: anywhere; white-space: normal; }
+.selected-subject td { background: #e1f3ef; font-weight: 600; }
+.selected-subject td:first-child { box-shadow: inset 3px 0 #168575; }
+.query-highlight td { background: #d5eee7 !important; transition: background .3s ease; }
+.admin-dialog { margin: auto; border: 0; padding: 24px; max-width: 480px; }
+.admin-dialog::backdrop { background: rgb(15 23 42 / 40%); }
+.admin-dialog .detail-actions { margin-top: 20px; }
+.export-history { max-height: 480px; overflow: auto; }
+.crf-toolbar { flex-wrap: wrap; gap: 16px; }
+tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }

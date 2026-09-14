@@ -368,7 +368,7 @@ export default function EdcWorkspace() {
     ) : active === 'Rule Master' ? (
       pageAccess['Rule Master'] ? <Rules rules={rules} refresh={refreshRules} notify={notify} /> : null
     ) : active === 'Export' ? (
-      <Export subject={subject} subjects={subjects} />
+      <Export subjects={subjects} />
     ) : active === 'Audit Trail' ? (
       pageAccess['Audit Trail'] ? <AuditTrail subjects={subjects} /> : null
     ) : (
@@ -736,7 +736,7 @@ function Detail({
               return (
                 <tr key={rule.variableKey} className={`${openForRule.length ? "queried-row" : ""} ${highlight === rule.variableKey ? "query-highlight" : ""}`}>
                   <td>
-                    <div className="variable-primary-row"><strong className="variable-main">{display.primary}</strong>
+                    <div className={`variable-primary-row${display.note ? ' has-note' : ''}`}><strong className="variable-main">{display.primary}</strong>
                     {display.note && <span className="variable-primary-note">{display.note}</span>}</div>
                     <small className="variable-subtitle">{display.secondary}</small>
                   </td>
@@ -790,7 +790,7 @@ function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects:
   return (
     <div className="content">
       <PageHeading eyebrow="DATA QUALITY" title="Query management" subtitle="All Query history stored in local SQLite" />
-      <label className="field-label toolbar">Status<select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>{['All', 'Open', 'Resolved'].map((status) => <option key={status}>{status}</option>)}</select></label>
+      <div className="subject-filter-bar"><label className="field-label filter-box">Status<select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>{['All', 'Open', 'Resolved'].map((status) => <option key={status}>{status}</option>)}</select></label></div>
 
       <section className="panel table-panel">
         <table>
@@ -1041,8 +1041,8 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
   )
 }
 
-function Export({ subject, subjects }: { subject: string; subjects: Subject[] }) {
-  const [selectedSubject, setSelectedSubject] = useState(subject || '')
+function Export({ subjects }: { subjects: Subject[] }) {
+  const [selectedSubject, setSelectedSubject] = useState('')
   const [selectedVisit, setSelectedVisit] = useState('ALL')
   const [history, setHistory] = useState<{ id: number; exported_at: string; user_name: string; subject_id: string | null; visit: string | null; file_name: string; export_type: string; status: string }[]>([])
   const [busy, setBusy] = useState(false)

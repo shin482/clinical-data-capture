@@ -186,7 +186,8 @@ tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }
 .recent-search-row button:hover { background: #e1f3ef; }
 .recent-search-error { display: block; color: var(--destructive); margin-top: 4px; font-size: 11px; }
 .variable-primary-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: nowrap; }
-.variable-primary-note { color: inherit; font-size: 11px; line-height: 1.5; white-space: nowrap; }
+.crf-table-panel .variable-primary-row.has-note .variable-main { min-width: 0; flex-shrink: 0; }
+.variable-primary-note { color: #173546; font-size: 11px; line-height: 1.5; white-space: nowrap; }
 .export-controls { align-items: flex-end; }
 .export-controls :is(select, .primary-btn) { box-sizing: border-box; height: 30px; min-height: 30px; padding: 4px 7px; line-height: 20px; border-width: 1px; border-radius: 4px; }
 .export-controls .field-label { margin-bottom: 0; }

@@ -3,6 +3,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { getCurrentTimestamp } from '../date-time'
 import { migrateStudySchema } from './study-migration'
+import { migrateSmokingRule } from './rule-migration'
 
 export type VariableDefinition = {
   variableKey: string
@@ -54,6 +55,7 @@ const valueColumns = database.prepare('PRAGMA table_info(clinical_values)').all(
 if (!valueColumns.some((column) => column.name === 'missing_reason')) database.exec('ALTER TABLE clinical_values ADD COLUMN missing_reason TEXT')
 
 migrateStudySchema(database)
+migrateSmokingRule(database)
 const queryColumns = database.prepare('PRAGMA table_info(queries)').all() as { name: string }[]
 if (!queryColumns.some((column) => column.name === 'updated_at')) database.exec('ALTER TABLE queries ADD COLUMN updated_at TEXT')
 

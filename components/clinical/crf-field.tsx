@@ -1,6 +1,7 @@
 'use client'
 
 import { categoryChoices, type FieldMetadata } from '@/lib/crf-metadata'
+import { handleFieldEnter } from '@/lib/field-navigation'
 
 export function CrfField({ rule, cellKey, value, hasQuery, queryId, onChange, disabled = false, readOnly = false }: {
   rule: FieldMetadata; cellKey: string; value: string;
@@ -10,6 +11,7 @@ export function CrfField({ rule, cellKey, value, hasQuery, queryId, onChange, di
   const choices = categoryChoices(rule)
   const numeric = ['integer', 'real'].includes(rule.dataType) || (rule.dataType === 'character' && (rule.minValue != null || rule.maxValue != null))
   const shared = {
+    'data-crf-entry': true,
     disabled, readOnly,
     id: cellKey, name: rule.variableKey, className: 'value-input', value,
     'aria-label': `${rule.label} ${cellKey.slice(-2)}`, 'aria-invalid': hasQuery,
@@ -20,7 +22,7 @@ export function CrfField({ rule, cellKey, value, hasQuery, queryId, onChange, di
       <option value="">선택</option>
       {value && !choices.some((choice) => choice.code === value) && <option value={value} disabled>기존 값: {value} (확인 필요)</option>}
       {choices.map(({ code, label }) => <option key={code} value={code}>{code} = {label}</option>)}
-    </select> : <input {...shared} type={rule.dataType === 'datetime' ? 'date' : numeric ? 'number' : 'text'}
+    </select> : <input {...shared} onKeyDown={handleFieldEnter} type={rule.dataType === 'datetime' ? 'date' : numeric ? 'number' : 'text'}
       min={numeric ? rule.minValue ?? undefined : undefined} max={numeric ? rule.maxValue ?? undefined : undefined}
       step={rule.dataType === 'integer' ? 1 : 'any'} onChange={(event) => onChange(event.target.value)} />}
   </div>

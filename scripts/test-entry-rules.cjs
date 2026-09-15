@@ -26,7 +26,7 @@ async function main() {
     const parent = rule.parents || rule.groupParent
     assert.equal(isFieldActive(rule, () => ''), false)
     assert.equal(isFieldActive(rule, () => '1'), true)
-    assert.equal(isFieldActive(rule, () => '0'), rule.activeValues === '*')
+    assert.equal(isFieldActive(rule, () => '0'), ['*', '!=99'].includes(rule.activeValues))
     assert.equal(isFieldActive(rule, () => '99'), rule.activeValues === '*')
   }
   assert.equal(rules.filter(r => r.groupParent === 'lab').length, 14)

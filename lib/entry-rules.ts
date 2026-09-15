@@ -6,7 +6,11 @@ export function isFieldActive(rule: ConditionalRule, valueOf: (key: string) => V
     const allowed = active.split(/[|,;]/).map((v) => v.trim()).filter(Boolean)
     return parents.split(/[|,;]/).map((v) => v.trim()).filter(Boolean).every((key) => {
       const value = valueOf(key)
-      return hasValue(value) && (allowed.includes('*') || (allowed.length ? allowed : ['1']).includes(String(value).trim()))
+      const normalized = String(value ?? '').trim()
+      const exclusions = allowed.filter((token) => token.startsWith('!='))
+      const inclusions = allowed.filter((token) => !token.startsWith('!='))
+      return hasValue(value) && exclusions.every((token) => normalized !== token.slice(2).trim()) &&
+        (inclusions.includes('*') || (!inclusions.length && exclusions.length > 0) || (inclusions.length ? inclusions : ['1']).includes(normalized))
     })
   }
   return matches(rule.parents, rule.activeValues) && matches(rule.groupParent || '', rule.groupActiveValue || '')

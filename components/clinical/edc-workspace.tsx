@@ -2,7 +2,7 @@
 
 import { useParams, usePathname, useRouter } from 'next/navigation'
 import { workspaceRoutes } from '@/lib/workspace-routes'
-import { derivedValues, isDerivedField, isFieldActive } from '@/lib/entry-rules'
+import { derivedRules, derivedValues, isDerivedField, isFieldActive } from '@/lib/entry-rules'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
 
@@ -750,7 +750,7 @@ function Detail({
         </div>
       </section>}
       {loading && <p role="status">대상자 데이터를 불러오는 중입니다. 로드되지 않으면 Subjects에서 다시 열어 주세요.</p>}
-      <section className="crf-table-panel" inert={loading} aria-busy={loading} tabIndex={0} aria-label="대상자 CRF 입력 표">
+      <section data-crf-navigation className="crf-table-panel" inert={loading} aria-busy={loading} tabIndex={0} aria-label="대상자 CRF 입력 표">
         <table>
           <thead>
             <tr>
@@ -956,6 +956,7 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
               <th>LABEL</th>
               <th>TYPE</th>
               <th>RANGE / VALUES</th>
+              <th>RULE / CONDITION</th>
               <th>STATUS</th>
               <th />
             </tr>
@@ -1039,6 +1040,10 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
                 Max value
                 <input value={editing.maxValue} onChange={(event) => setEditing({ ...editing, maxValue: event.target.value })} />
               </label>
+              <label>Parent variable<input value={editing.parents} onChange={(event) => setEditing({ ...editing, parents: event.target.value })} /></label>
+              <label>Active values<input value={editing.activeValues} onChange={(event) => setEditing({ ...editing, activeValues: event.target.value })} /><small>1 ?? 0|1 ? *: ??? ?? ? !=99: 99? ??? ??</small></label>
+              <label>Group parent<input value={editing.groupParent} onChange={(event) => setEditing({ ...editing, groupParent: event.target.value })} /></label>
+              <label>Group active values<input value={editing.groupActiveValue} onChange={(event) => setEditing({ ...editing, groupActiveValue: event.target.value })} /></label>
               <label>
                 Input guide
                 <input value={editing.inputGuide} onChange={(event) => setEditing({ ...editing, inputGuide: event.target.value })} />

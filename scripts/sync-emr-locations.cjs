@@ -1,0 +1,18 @@
+const fs = require('node:fs')
+const path = require('node:path')
+const XLSX = require('xlsx')
+
+const root = path.resolve(__dirname, '..')
+const workbook = XLSX.readFile(path.join(root, 'DFU-DC_e-CRF_PartB_IJH.xlsx'))
+const sheetName = 'part B 변수목록 수정_최종본'
+const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: '' })
+if (rows[0]?.[5] !== '인제대 EMR 위치') throw new Error(`${sheetName} F열에서 인제대 EMR 위치를 찾을 수 없습니다.`)
+const locations = new Map(rows.slice(1).filter((row) => String(row[0]).trim()).map((row) => [String(row[0]).trim(), String(row[5]).replace(/\r\n/g, '\n').trim()]))
+const jsonPath = path.join(root, 'lib', 'study-variables.json')
+const definitions = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
+const missing = definitions.filter((definition) => !locations.has(definition.variableKey)).map((definition) => definition.variableKey)
+const unexpected = [...locations.keys()].filter((key) => !definitions.some((definition) => definition.variableKey === key))
+if (missing.length || unexpected.length) throw new Error(`변수 매칭 실패: missing=${missing.join(',')} unexpected=${unexpected.join(',')}`)
+for (const definition of definitions) definition.emrLocation = locations.get(definition.variableKey)
+fs.writeFileSync(jsonPath, `${JSON.stringify(definitions, null, 2)}\n`, 'utf8')
+console.log(`Synced ${definitions.length} variables, ${new Set(definitions.map((definition) => definition.emrLocation).filter(Boolean)).size} EMR groups`)

@@ -20,10 +20,11 @@ function readSource() {
 }
 
 function compare(source, target) {
+  const normalized = (value) => typeof value === 'string' ? value.replace(/\r\n/g, '\n') : value
   return {
     missing: source.filter((row) => !target.some((other) => other.variableKey === row.variableKey)).map((row) => row.variableKey),
     unexpected: target.filter((row) => !source.some((other) => other.variableKey === row.variableKey)).map((row) => row.variableKey),
-    mismatches: source.filter((row) => target.some((other) => other.variableKey === row.variableKey && ['label', 'timepointT1', 'timepointT2', 'timepointT3'].some((key) => row[key] !== other[key]))).map((row) => row.variableKey),
+    mismatches: source.filter((row) => target.some((other) => other.variableKey === row.variableKey && ['label', 'timepointT1', 'timepointT2', 'timepointT3'].some((key) => normalized(row[key]) !== normalized(other[key])))).map((row) => row.variableKey),
   }
 }
 

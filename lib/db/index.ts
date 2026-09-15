@@ -56,8 +56,25 @@ if (!valueColumns.some((column) => column.name === 'missing_reason')) database.e
 
 migrateStudySchema(database)
 migrateSmokingRule(database)
+// Existing subjects receive the same generated, immutable ID value as newly
+// registered subjects without replacing any previously stored value.
+database.exec(`
+  INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at)
+  SELECT s.id,v.id,'id',s.subject_id,'system',CURRENT_TIMESTAMP
+  FROM subjects s JOIN visits v ON v.subject_id=s.id AND v.timepoint='T1'
+  WHERE EXISTS (SELECT 1 FROM variable_definitions d WHERE d.variable_key='id' AND d.study_active=1)
+  ON CONFLICT(visit_id,variable_key) DO NOTHING;
+`)
 const queryColumns = database.prepare('PRAGMA table_info(queries)').all() as { name: string }[]
 if (!queryColumns.some((column) => column.name === 'updated_at')) database.exec('ALTER TABLE queries ADD COLUMN updated_at TEXT')
+database.exec(`
+  INSERT INTO queries(subject_id,visit_id,timepoint,variable_key,query_type,message,current_value,detected_at,updated_at)
+  SELECT s.subject_id,v.id,v.timepoint,'vdt','MISSING','방문일을 입력해 주세요.','',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
+  FROM subjects s JOIN visits v ON v.subject_id=s.id
+  JOIN variable_definitions d ON d.variable_key='vdt' AND d.study_active=1 AND d.enabled=1 AND d.allow_blank=0
+  WHERE COALESCE(v.visit_date,'')=''
+  ON CONFLICT(subject_id,timepoint,variable_key,query_type) DO NOTHING;
+`)
 
 export function db() { return database }
 
@@ -66,8 +83,36 @@ export function ensureSubject(subjectId: string) {
   if (!normalized) throw new Error('Subject ID is required')
   const subject = database.prepare('INSERT INTO subjects (subject_id,created_at,updated_at) VALUES (?,?,?) ON CONFLICT(subject_id) DO UPDATE SET subject_id=excluded.subject_id RETURNING id, subject_id').get(normalized, getCurrentTimestamp(), getCurrentTimestamp()) as { id: number; subject_id: string }
   const insertVisit = database.prepare('INSERT INTO visits (subject_id, timepoint) VALUES (?, ?) ON CONFLICT(subject_id, timepoint) DO NOTHING')
-  database.transaction(() => ['T1', 'T2', 'T3'].forEach((timepoint) => insertVisit.run(subject.id, timepoint)))()
+  database.transaction(() => {
+    ;['T1', 'T2', 'T3'].forEach((timepoint) => insertVisit.run(subject.id, timepoint))
+    const t1 = database.prepare("SELECT id FROM visits WHERE subject_id=? AND timepoint='T1'").get(subject.id) as { id: number }
+    database.prepare("INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at) VALUES(?,?, 'id',?,'system',?) ON CONFLICT(visit_id,variable_key) DO NOTHING").run(subject.id, t1.id, normalized, getCurrentTimestamp())
+  })()
   return subject
+}
+
+export function createSubject(subjectId: string) {
+  const normalized = subjectId.trim()
+  if (!normalized) throw new Error('Subject ID is required')
+  try {
+    return database.transaction(() => {
+      const timestamp = getCurrentTimestamp()
+      const subject = database.prepare('INSERT INTO subjects(subject_id,created_at,updated_at) VALUES(?,?,?) RETURNING id,subject_id').get(normalized, timestamp, timestamp) as { id: number; subject_id: string }
+      const insertVisit = database.prepare('INSERT INTO visits(subject_id,timepoint) VALUES(?,?) RETURNING id')
+      const visits = ['T1', 'T2', 'T3'].map((timepoint) => ({ timepoint, ...(insertVisit.get(subject.id, timepoint) as { id: number }) }))
+      database.prepare("INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at) VALUES(?,?, 'id',?,'system',?)").run(subject.id, visits[0].id, normalized, timestamp)
+      const definition = database.prepare("SELECT allow_blank FROM variable_definitions WHERE variable_key='vdt' AND enabled=1 AND study_active=1").get() as { allow_blank: number } | undefined
+      if (definition && !definition.allow_blank) {
+        const insertQuery = database.prepare("INSERT INTO queries(subject_id,visit_id,timepoint,variable_key,query_type,message,current_value,detected_at,updated_at) VALUES(?,?,?,'vdt','MISSING','방문일을 입력해 주세요.','',?,?)")
+        visits.forEach((visit) => insertQuery.run(normalized, visit.id, visit.timepoint, timestamp, timestamp))
+      }
+      return subject
+    })()
+  }
+  catch (error) {
+    if (String(error).includes('UNIQUE constraint failed: subjects.subject_id')) throw new Error('이미 등록된 Subject 번호입니다.')
+    throw error
+  }
 }
 
 export function rowToVariable(row: Record<string, unknown>): VariableDefinition {

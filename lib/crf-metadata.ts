@@ -1,6 +1,4 @@
 export type Visit = 'T1' | 'T2' | 'T3'
-export const sampleVisitDates: Record<Visit, string> = { T1: '2026-09-01', T2: '2026-09-08', T3: '2026-09-15' }
-// Display fallbacks only; no sample values are written to clinical records.
 export const sampleVisitNames: Record<Visit, string> = { T1: 'Baseline', T2: 'Follow-up 1', T3: 'Follow-up 2' }
 export const missingReasons = [
   { code: 'NOT_ASSESSED', label: 'Not assessed' },

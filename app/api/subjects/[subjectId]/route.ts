@@ -34,6 +34,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ su
   const storedValue = missingReason ? null : body.value || ''
   const variable = db().prepare('SELECT * FROM variable_definitions WHERE variable_key=? AND enabled=1 AND study_active=1').get(body.variableKey) as Record<string, unknown> | undefined
   if (!variable) return NextResponse.json({ error: 'Variable is not enabled or does not exist' }, { status: 400 })
+  if (variable.data_type === 'id') return NextResponse.json({ error: 'Subject ID is generated automatically and is read-only' }, { status: 400 })
   if (!isCollectedAtVisit(rowToVariable(variable), body.timepoint as Visit)) return NextResponse.json({ error: 'Variable is not collected at this visit' }, { status: 400 })
   return db().transaction(() => {
   const savedAt = getCurrentTimestamp()

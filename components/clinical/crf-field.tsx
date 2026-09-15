@@ -10,6 +10,11 @@ export function CrfField({ rule, cellKey, value, hasQuery, queryId, onChange, di
 }) {
   const choices = categoryChoices(rule)
   const numeric = ['integer', 'real'].includes(rule.dataType) || (rule.dataType === 'character' && (rule.minValue != null || rule.maxValue != null))
+  const placeholder = numeric
+    ? rule.inputGuide.trim() || (rule.minValue != null || rule.maxValue != null
+      ? `${rule.minValue ?? '제한 없음'}–${rule.maxValue ?? '제한 없음'}${rule.unitOrFormat ? ` ${rule.unitOrFormat}` : ''}`
+      : rule.dataType === 'integer' ? '정수 입력' : '숫자 입력')
+    : undefined
   const shared = {
     'data-crf-entry': true,
     disabled, readOnly,
@@ -24,6 +29,6 @@ export function CrfField({ rule, cellKey, value, hasQuery, queryId, onChange, di
       {choices.map(({ code, label }) => <option key={code} value={code}>{code} = {label}</option>)}
     </select> : <input {...shared} onKeyDown={handleFieldEnter} type={rule.dataType === 'datetime' ? 'date' : numeric ? 'number' : 'text'}
       min={numeric ? rule.minValue ?? undefined : undefined} max={numeric ? rule.maxValue ?? undefined : undefined}
-      step={rule.dataType === 'integer' ? 1 : 'any'} onChange={(event) => onChange(event.target.value)} />}
+      placeholder={placeholder} step={rule.dataType === 'integer' ? 1 : 'any'} onChange={(event) => onChange(event.target.value)} />}
   </div>
 }

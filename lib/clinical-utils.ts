@@ -16,3 +16,10 @@ export function getSubjectQueryStatus(queries: { status: string }[]) {
 export function emrReference(rule: { variableKey: string; emrLocation: string }) {
   return rule.emrLocation || `EMR-${rule.variableKey}`
 }
+
+export function emrReferences(rule: { emrLocation: string }) {
+  return rule.emrLocation
+    .split(/\r\n?|\n/)
+    .map((reference) => reference.trim())
+    .filter(Boolean)
+}

@@ -1,4 +1,4 @@
-import { derivedValues } from '@/lib/entry-rules'
+import { derivedValues, exportFieldValue } from '@/lib/entry-rules'
 import { getCurrentTimestamp } from '@/lib/date-time'
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
@@ -33,6 +33,20 @@ export async function GET(request: NextRequest) {
       for (const [key, value] of Object.entries(derivedValues((key) => row[`${key}_${timepoint.toLowerCase()}`]))) {
         const column = `${key}_${timepoint.toLowerCase()}`
         if (columns.includes(column)) row[column] = value
+      }
+    }
+    const activationValues = { ...row }
+    for (const rule of dictionary) {
+      for (const timepoint of visits) {
+        if (!rule[`timepoint_${timepoint.toLowerCase()}`]) continue
+        const key = `${rule.variable_key}_${timepoint.toLowerCase()}`
+        row[key] = exportFieldValue({
+          enabled: Boolean(rule.enabled),
+          parents: String(rule.parents || ''),
+          activeValues: String(rule.active_values || ''),
+          groupParent: String(rule.group_parent || ''),
+          groupActiveValue: String(rule.group_active_value || ''),
+        }, (parentKey) => activationValues[`${parentKey}_${timepoint.toLowerCase()}`], row[key])
       }
     }
     return row

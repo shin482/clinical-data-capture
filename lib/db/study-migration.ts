@@ -16,7 +16,7 @@ export function migrateStudySchema(database: Database.Database) {
     // definitions are inserted first so foreign key references remain valid.
     const insert = database.prepare(`INSERT INTO variable_definitions(variable_key,label,section,data_type,unit_or_format,category_options,min_value,max_value,na_rule_raw,parents,active_values,allow_blank,allow_unknown_99,group_name,group_type,group_parent,group_active_value,enabled,timepoint_t1,timepoint_t2,timepoint_t3,emr_location,input_guide,display_order,study_active)
       VALUES (@variableKey,@label,@section,@dataType,@unitOrFormat,@categoryOptions,@minValue,@maxValue,@naRuleRaw,@parents,@activeValues,@allowBlank,@allowUnknown99,@groupName,@groupType,@groupParent,@groupActiveValue,1,@timepointT1,@timepointT2,@timepointT3,@emrLocation,@inputGuide,@displayOrder,1)
-      ON CONFLICT(variable_key) DO UPDATE SET label=excluded.label,timepoint_t1=excluded.timepoint_t1,timepoint_t2=excluded.timepoint_t2,timepoint_t3=excluded.timepoint_t3,display_order=excluded.display_order,study_active=1,enabled=1`)
+      ON CONFLICT(variable_key) DO UPDATE SET label=excluded.label,timepoint_t1=excluded.timepoint_t1,timepoint_t2=excluded.timepoint_t2,timepoint_t3=excluded.timepoint_t3,emr_location=excluded.emr_location,display_order=excluded.display_order,study_active=1,enabled=1`)
     for (const definition of studyVariables) {
       const oldKey = Object.keys(legacyVariableAliases).find((key) => legacyVariableAliases[key] === definition.variableKey)
       const old = oldKey ? database.prepare('SELECT * FROM variable_definitions WHERE variable_key=?').get(oldKey) as Record<string, unknown> | undefined : undefined

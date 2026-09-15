@@ -3,7 +3,7 @@ import './globals.css'
 import EdcWorkspace from '@/components/clinical/edc-workspace'
 
 export const metadata: Metadata = {
-  title: 'Clinical Data Capture | Local EDC',
+  title: 'ELECTRONIC DATA CAPTURE | Local EDC',
   description: 'Local-first electronic clinical data capture workspace for hospital research teams.',
 }
 

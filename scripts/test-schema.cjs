@@ -10,6 +10,8 @@ const { readSource, compare } = require('./validate-variables.cjs')
 const root = path.resolve(__dirname, '..')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'edc-schema-test-'))
 process.env.EDC_DATA_DIR = directory
+process.env.EDC_STUDY_VARIABLES_PATH = path.join(directory, 'study-variables.json')
+fs.copyFileSync(path.join(root, 'lib', 'study-variables.json'), process.env.EDC_STUDY_VARIABLES_PATH)
 const resolve = Module._resolveFilename
 Module._resolveFilename = function (name, ...args) { return resolve.call(this, name.startsWith('@/') ? path.join(root, name.slice(2)) : name, ...args) }
 require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true } }).outputText, filename)
@@ -38,7 +40,8 @@ async function main() {
   const variables = await variablesApi.GET().json()
   assert.equal(variables.length, 71)
   assert.deepEqual(compare(source, variables), { missing: [], unexpected: [], mismatches: [] })
-  assert.equal(db().prepare('SELECT count(*) AS n FROM clinical_values').get().n, 4)
+  assert.equal(db().prepare('SELECT count(*) AS n FROM clinical_values').get().n, 5)
+  assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='id'").get().value, 'Subject 2')
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='pad'").get().value, '1')
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='amp_dt'").get().value, '2026-01-15')
   assert.equal(db().prepare("SELECT study_active FROM variable_definitions WHERE variable_key='dfu_wnd'").get().study_active, 0)
@@ -72,8 +75,8 @@ async function main() {
   }
   const { getVisitVariables } = require('../lib/visit-rules.ts')
   assert.equal(getVisitVariables(variables, 'T1').length, 71)
-  assert.equal(getVisitVariables(variables, 'T2').length, 55)
-  assert.equal(getVisitVariables(variables, 'T3').length, 55)
+  assert.equal(getVisitVariables(variables, 'T2').length, source.filter((row) => row.timepointT2).length)
+  assert.equal(getVisitVariables(variables, 'T3').length, source.filter((row) => row.timepointT3).length)
   const { getSubjectVisitProgress } = require('../lib/data-entry.ts')
   assert.deepEqual(getSubjectVisitProgress('S', 'T2', variables, []), getSubjectVisitProgress('S', 'T2', variables, [{ variableKey: 'sex', value: '0' }]))
   const neutral = variables.map((row) => row.variableKey === 'dfu_ex_amt' ? { ...row, timepointT1: false, timepointT2: false, timepointT3: false } : row)
@@ -88,12 +91,13 @@ async function main() {
   assert.deepEqual(compare(source, dictionary.map((row) => ({ variableKey: row.variable_key, label: row.label, timepointT1: !!row.timepoint_t1, timepointT2: !!row.timepoint_t2, timepointT3: !!row.timepoint_t3 }))), { missing: [], unexpected: [], mismatches: [] })
   const data = XLSX.utils.sheet_to_json(workbook.Sheets.data)[0]
   assert.equal(data.pad_t1, '1')
-  assert.equal(data.amp_dt_t2, '2026-01-15')
+  assert.equal(data.amp_dt_t2, 'NA', 'Stored child value exports as NA while its parent condition is inactive')
   assert.equal(data.dfu_wnd_t1, undefined)
   assert.equal(data.sex_t2, undefined)
   const patch = require('../app/api/variables/[variableKey]/route.ts').PATCH
   const ruleContext = { params: Promise.resolve({ variableKey: 'sex' }) }
   assert.equal((await patch(new Request('http://localhost', { method: 'PATCH', body: JSON.stringify({ inputGuide: 'Check chart' }) }), ruleContext)).status, 200)
+  assert.equal(require(process.env.EDC_STUDY_VARIABLES_PATH).find((row) => row.variableKey === 'sex').inputGuide, 'Check chart')
   assert.equal((await patch(new Request('http://localhost', { method: 'PATCH', body: JSON.stringify({ label: 'Wrong label' }) }), ruleContext)).status, 409)
   assert.equal((await patch(new Request('http://localhost', { method: 'PATCH', body: JSON.stringify({ timepointT2: true }) }), ruleContext)).status, 409)
   assert.equal((await variablesApi.POST()).status, 409)

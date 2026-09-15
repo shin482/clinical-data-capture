@@ -1,6 +1,6 @@
 import { sortSubjectsNumerically } from '@/lib/clinical-utils'
 import { NextRequest, NextResponse } from 'next/server'
-import { db, ensureSubject, rowToVariable } from '@/lib/db'
+import { createSubject, db, rowToVariable } from '@/lib/db'
 import { completionVisits, getSubjectVisitProgress, type EntryValue } from '@/lib/data-entry'
 import type { Visit } from '@/lib/crf-metadata'
 
@@ -31,5 +31,8 @@ export function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  try { const body = await request.json(); return NextResponse.json(ensureSubject(String(body.subjectId || '')), { status: 201 }) } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to create subject' }, { status: 400 }) }
+  try { const body = await request.json(); return NextResponse.json(createSubject(String(body.subjectId || '')), { status: 201 }) } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to create subject'
+    return NextResponse.json({ error: message }, { status: message.includes('이미 등록된') ? 409 : 400 })
+  }
 }

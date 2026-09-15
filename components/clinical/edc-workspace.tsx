@@ -4,10 +4,10 @@ import { useParams, usePathname, useRouter } from 'next/navigation'
 import { workspaceRoutes } from '@/lib/workspace-routes'
 import { derivedRules, derivedValues, isDerivedField, isFieldActive } from '@/lib/entry-rules'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, SlidersHorizontal, Users } from 'lucide-react'
 
-import { inputGuide, sampleVisitDates, type Visit } from '@/lib/crf-metadata'
-import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, normalizeQueryStatus, emrReference } from '@/lib/clinical-utils'
+import { type Visit } from '@/lib/crf-metadata'
+import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, normalizeQueryStatus, emrReferences } from '@/lib/clinical-utils'
 import { getDataEntrySummary, type VisitCompletion, type VisitProgress } from '@/lib/data-entry'
 import { emptyPageAccess, isProtectedPage, pageSessionKeys, readPageAccess, type ProtectedPage } from '@/lib/page-access'
 import { appConfig } from '@/lib/app-config'
@@ -16,7 +16,7 @@ import { HelpModal } from './help-modal'
 import { SummaryCard } from './summary-card'
 import { formatDateTime, timestampMillis, localDateBoundary } from '@/lib/date-time'
 import { RecentSearchInput } from './recent-search-input'
-import { variableDisplay, orderedGroups } from '@/lib/variable-display'
+import { variableDisplay } from '@/lib/variable-display'
 import { readRecentSearches, updateRecentSearches, writeRecentSearches } from '@/lib/recent-searches'
 import { DataEntryProgress } from './data-entry-progress'
 import { CrfField } from './crf-field'
@@ -85,8 +85,6 @@ const nav = [
 
 const adminNav = [
   { label: 'Audit Trail', icon: FileClock },
-  { label: 'User Management', icon: UserCog },
-  { label: 'Settings / Backup', icon: Settings },
 ]
 
 function StatusPill({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: 'good' | 'warn' | 'neutral' }) {
@@ -228,17 +226,6 @@ export default function EdcWorkspace() {
 
   const openSubject = async (id: string, target: QueryRow | null = null) => {
     setQueryTarget(target)
-    const response = await fetch('/api/subjects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subjectId: id }),
-    })
-
-    if (!response.ok) {
-      notify('Subject 생성 실패')
-      return
-    }
-
     selectedSubject.current = id
     setValues({})
     setVisits([])
@@ -379,7 +366,7 @@ export default function EdcWorkspace() {
         onOpenQueries={() => setActive('Queries')}
       />
     ) : active === 'Subjects' ? (
-      <Subjects subjects={subjects} onOpen={openSubject} />
+      <Subjects subjects={subjects} onOpen={openSubject} refresh={refreshSubjects} notify={notify} />
     ) : active === 'Subject detail' ? (
       <Detail
         key={`${subject}-${queryTarget?.variable_key || ''}-${queryTarget?.timepoint || ''}`}
@@ -412,19 +399,13 @@ export default function EdcWorkspace() {
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-icon">
-            <Activity size={19} />
-          </div>
+        <button type="button" className="brand" onClick={() => handleNavClick('Dashboard')} aria-label="Dashboard로 이동">
+          <img className="brand-logo" src="/rexsoft-logo.png" alt="Rexsoft" />
           <div>
-            <strong>
-              CLINICAL
-              <br />
-              DATA CAPTURE
-            </strong>
+            <strong>ELECTRONIC<br />DATA CAPTURE</strong>
             <span>LOCAL EDC · {appConfig.version}</span>
           </div>
-        </div>
+        </button>
 
         <div className="site-switcher">
           <span className="site-dot" />
@@ -487,7 +468,6 @@ export default function EdcWorkspace() {
             <button className="icon-btn help-button" type="button" aria-label="Help" onClick={() => setHelpOpen(true)}>
               <HelpCircle size={18} />
             </button>
-            <span className="avatar small" aria-label="Current user">MJ</span>
           </div>
         </header>
 
@@ -549,12 +529,21 @@ function Dashboard({ subjects, queries, onOpen, onOpenQueries }: { subjects: Sub
   )
 }
 
-function Subjects({ subjects, onOpen }: { subjects: Subject[]; onOpen: (id: string) => void }) {
+function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; onOpen: (id: string) => void; refresh: () => Promise<void>; notify: (message: string) => void }) {
   const [search, setSearch] = useState('')
   const [newId, setNewId] = useState<string | null>(null)
+  const [createError, setCreateError] = useState('')
 
-  const create = () => {
-    if (newId?.trim()) onOpen(newId.trim())
+  const create = async () => {
+    const subjectId = newId?.trim()
+    if (!subjectId) return
+    const response = await fetch('/api/subjects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subjectId }) })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) { setCreateError(body.error || 'Subject 등록에 실패했습니다.'); return }
+    setCreateError('')
+    setNewId(null)
+    await refresh()
+    notify('Subject가 등록되었습니다.')
   }
 
   return (
@@ -564,7 +553,7 @@ function Subjects({ subjects, onOpen }: { subjects: Subject[]; onOpen: (id: stri
         title="Subjects"
         subtitle={`${subjects.length} subjects in local database`}
         action={
-          <button className="primary-btn" type="button" onClick={() => setNewId('')}>
+          <button className="primary-btn" type="button" onClick={() => { setCreateError(''); setNewId('') }}>
             <Plus size={16} /> New subject
           </button>
         }
@@ -626,7 +615,7 @@ function Subjects({ subjects, onOpen }: { subjects: Subject[]; onOpen: (id: stri
             </div>
             <label>
               Subject ID
-              <input autoFocus value={newId} onChange={(event) => setNewId(event.target.value)} />
+              <input autoFocus value={newId} onChange={(event) => { setNewId(event.target.value); setCreateError('') }} />
             </label>
             <div className="detail-actions">
               <button type="button" className="outline-btn" onClick={() => setNewId(null)}>
@@ -635,6 +624,7 @@ function Subjects({ subjects, onOpen }: { subjects: Subject[]; onOpen: (id: stri
               <button type="submit" className="primary-btn">
                 <Check size={15} /> Create
               </button>
+              {createError && <span className="modal-inline-error" role="alert">{createError}</span>}
             </div>
           </form>
         </div>
@@ -673,12 +663,14 @@ function Detail({
   onBack: () => void
 }) {
   const [showEmr, setShowEmr] = useState(true)
-  const [sort, setSort] = useState('default')
-  const [form, setForm] = useState(target?.form_name || '')
+  const [emrFilter, setEmrFilter] = useState('')
   const [visitFilter, setVisitFilter] = useState<string>(target?.timepoint || '')
   const [highlight, setHighlight] = useState('')
   const shownVisits = allVisits.filter((visit) => !visitFilter || visit === visitFilter)
-  const shownRules = rules.filter((rule) => !form || rule.section === form).sort((a, b) => sort === 'default' ? 0 : emrReference(a).localeCompare(emrReference(b), 'en', { numeric: true }) * (sort === 'desc' ? -1 : 1))
+  const referencesFor = (rule: Rule) => emrReferences(rule)
+  const emrGroups = Array.from(new Set(rules.flatMap(referencesFor))).sort((a, b) => a.localeCompare(b, 'ko-KR', { sensitivity: 'base' }))
+  if (rules.some((rule) => referencesFor(rule).length === 0)) emrGroups.push('EMR 위치 미지정')
+  const shownRules = rules.filter((rule) => !emrFilter || (emrFilter === 'EMR 위치 미지정' ? referencesFor(rule).length === 0 : referencesFor(rule).includes(emrFilter)))
   useEffect(() => {
     if (loading || !target || target.subject_id !== subject) return
     const id = `${target.variable_key}-${target.timepoint}`
@@ -719,7 +711,7 @@ function Detail({
 
         {allVisits.map((visit) => (
           <div className="strip-visit" key={visit}>
-            <span>{visit} / {visitDates[visit] || sampleVisitDates[visit]}</span>
+            <span>{visit} / {visitDates[visit] || '날짜 미입력'}</span>
             <input disabled={loading} aria-label={`${visit} 방문일`} type="date" value={visitDates[visit] || ''} onChange={(event) => saveDate(visit, event.target.value)} />
           </div>
         ))}
@@ -731,16 +723,16 @@ function Detail({
       </div>
 
       <div className="crf-toolbar subject-filter-bar">
-        <label className="field-label filter-box">EMR 기준 정렬<select value={sort} onChange={(e) => setSort(e.target.value)}><option value="default">기본 순서</option><option value="asc">EMR Reference 오름차순</option><option value="desc">EMR Reference 내림차순</option></select></label>
-        <label className="field-label filter-box">항목 그룹<select value={form} onChange={(e) => setForm(e.target.value)}><option value="">전체 그룹</option>{orderedGroups(Array.from(new Set(rules.map((r) => r.section)))).map((name) => <option key={name}>{name}</option>)}</select></label>
+        <label className="field-label filter-box emr-filter">EMR 기준 정렬<select value={emrFilter} onChange={(e) => setEmrFilter(e.target.value)}><option value="">전체 EMR 위치</option>{emrGroups.map((name) => <option key={name}>{name}</option>)}</select></label>
         <label className="field-label filter-box">방문 시점<select value={visitFilter} onChange={(e) => setVisitFilter(e.target.value)}><option value="">전체 방문</option>{allVisits.map((v) => <option key={v}>{v}</option>)}</select></label>
+      </div>
+      <div className="crf-display-options">
         <label className="check-control">
           <input type="checkbox" checked={queryOnly} onChange={(event) => setQueryOnly(event.target.checked)} />
           Query 있는 항목만 보기
         </label>
+        <label className="check-control"><input type="checkbox" checked={showEmr} onChange={(event) => setShowEmr(event.target.checked)} /> EMR Reference 표시</label>
       </div>
-
-      <label className="check-control"><input type="checkbox" checked={showEmr} onChange={(event) => setShowEmr(event.target.checked)} /> EMR Reference 표시</label>
       {target && !rules.some((rule) => rule.variableKey === target.variable_key && isCollectedAtVisit(rule, target.timepoint)) && <section className="panel" style={{ padding: 20 }}>
         <h2>Historical Query</h2>
         <div id={`${target.variable_key}-${target.timepoint}`} tabIndex={-1} style={{ background: highlight === target.variable_key ? '#d5eee7' : undefined, padding: 12, borderRadius: 4 }}>
@@ -755,14 +747,13 @@ function Detail({
           <thead>
             <tr>
               <th>VARIABLE</th>
-              <th>INPUT GUIDE</th>
               {showEmr && <th>EMR REFERENCE</th>}
-              {shownVisits.map((visit) => <th key={visit}>{visit}<small className="variable-subtitle">{visitDates[visit] || sampleVisitDates[visit]}</small></th>)}
+              {shownVisits.map((visit) => <th key={visit}>{visit}<small className="variable-subtitle">{visitDates[visit] || '날짜 미입력'}</small></th>)}
               <th>QUERY</th>
             </tr>
           </thead>
           <tbody>
-            {!shownRules.length && <tr><td colSpan={shownVisits.length + (showEmr ? 4 : 3)} className="crf-empty">{queryOnly ? '현재 열린 Query가 없습니다.' : '표시할 항목이 없습니다.'}</td></tr>}
+            {!shownRules.length && <tr><td colSpan={shownVisits.length + (showEmr ? 3 : 2)} className="crf-empty">{queryOnly ? '현재 열린 Query가 없습니다.' : '표시할 항목이 없습니다.'}</td></tr>}
             {shownRules.map((rule) => {
               const display = variableDisplay(rule)
               const openForRule = queries.filter((query) => query.subject_id === subject && query.variable_key === rule.variableKey && query.status === 'OPEN').sort((a, b) => a.timepoint.localeCompare(b.timepoint))
@@ -770,12 +761,11 @@ function Detail({
               return (
                 <tr key={rule.variableKey} className={`${openForRule.length ? "queried-row" : ""} ${highlight === rule.variableKey ? "query-highlight" : ""}`}>
                   <td>
-                    <div className={`variable-primary-row${display.note ? ' has-note' : ''}`}><strong className="variable-main">{display.primary}</strong>
+                    <div className={`variable-primary-row${display.note ? ' has-note' : ''}`}><strong className="variable-main">{display.primary}{['integer', 'real'].includes(rule.dataType) && !rule.allowBlank ? <span className="required-mark"> *</span> : null}</strong>
                     {display.note && <span className="variable-primary-note">{display.note}</span>}</div>
                     <small className="variable-subtitle">{display.secondary}</small>
                   </td>
-                  <td className="input-guide"><span title={inputGuide(rule)}>{inputGuide(rule)}</span></td>
-                  {showEmr && <td className="emr-reference">{!rule.emrLocation && <small className="mock-label">Sample</small>}{emrReference(rule)}</td>}
+                  {showEmr && <td className="emr-reference">{referencesFor(rule).length ? referencesFor(rule).map((reference, index) => <div key={`${rule.variableKey}-emr-${index}`}>{reference}</div>) : 'EMR 위치 미지정'}</td>}
 
                   {shownVisits.map((visit) => {
                     const currentKey = `${rule.variableKey}-${visit}`
@@ -784,7 +774,7 @@ function Detail({
                     return (
                       <td key={currentKey}>
                         {isCollectedAtVisit(rule, visit) ? <CrfField rule={rule} cellKey={currentKey} value={currentValue}
-                          disabled={!isFieldActive(rule, (key) => values[`${key}-${visit}`])} readOnly={isDerivedField(rule.variableKey)}
+                          disabled={!isFieldActive(rule, (key) => values[`${key}-${visit}`])} readOnly={rule.dataType === 'id' || isDerivedField(rule.variableKey)}
                           hasQuery={openForRule.some((query) => query.timepoint === visit)} queryId={`query-${rule.variableKey}`}
                           onChange={(value) => update(currentKey, value)} /> : <span id={currentKey} tabIndex={-1} className="not-collected">—</span>}
                       </td>
@@ -1045,7 +1035,7 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
               <label>Group parent<input value={editing.groupParent} onChange={(event) => setEditing({ ...editing, groupParent: event.target.value })} /></label>
               <label>Group active values<input value={editing.groupActiveValue} onChange={(event) => setEditing({ ...editing, groupActiveValue: event.target.value })} /></label>
               <label>
-                Input guide
+                Numeric placeholder guide
                 <input value={editing.inputGuide} onChange={(event) => setEditing({ ...editing, inputGuide: event.target.value })} />
               </label>
               <label>

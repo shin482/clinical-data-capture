@@ -8,6 +8,8 @@ const Module = require('node:module')
 const root = path.resolve(__dirname, '..')
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'edc-crf-test-'))
 process.env.EDC_DATA_DIR = directory
+process.env.EDC_STUDY_VARIABLES_PATH = path.join(directory, 'study-variables.json')
+fs.copyFileSync(path.join(root, 'lib', 'study-variables.json'), process.env.EDC_STUDY_VARIABLES_PATH)
 const resolve = Module._resolveFilename
 Module._resolveFilename = function (name, ...args) {
   return resolve.call(this, name.startsWith('@/') ? path.join(root, name.slice(2)) : name, ...args)
@@ -34,8 +36,9 @@ async function main() {
   assert.equal(open().length, 0, 'Existing Unknown 99 remains valid')
   await save({ value: null, missingReason: 'NOT_DONE' })
   const detail = await (await GET(new NextRequest('http://localhost'), context)).json()
-  assert.equal(detail.values[0].value, null)
-  assert.equal(detail.values[0].missingReason, 'NOT_DONE')
+  const occlusion = detail.values.find((item) => item.variableKey === 'occl')
+  assert.equal(occlusion.value, null)
+  assert.equal(occlusion.missingReason, 'NOT_DONE')
   assert.equal(open().length, 0)
   const exported = await require('../app/api/export/route.ts').GET(new NextRequest('http://localhost/api/export?subject=CRF_TEST'))
   const xlsx = require('xlsx')
@@ -148,7 +151,7 @@ async function main() {
   db().transaction(() => {
     for (const visit of db().prepare('SELECT * FROM visits WHERE subject_id=?').all(completeSubject.id)) {
       for (const rule of definitions) {
-        if (rule.data_type !== 'id') insertValue.run(completeSubject.id, visit.id, rule.variable_key, '0')
+        if (rule.data_type !== 'id') insertValue.run(completeSubject.id, visit.id, rule.variable_key, rule.variable_key === 'hei' ? '170' : rule.variable_key === 'wei' ? '68' : '0')
       }
     }
   })()

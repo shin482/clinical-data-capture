@@ -1,5 +1,8 @@
 'use client'
 
+import { useParams, usePathname, useRouter } from 'next/navigation'
+import { workspaceRoutes } from '@/lib/workspace-routes'
+import { derivedValues, isDerivedField, isFieldActive } from '@/lib/entry-rules'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, Settings, SlidersHorizontal, UserCog, Users } from 'lucide-react'
 
@@ -30,6 +33,8 @@ type Rule = {
   maxValue: number | null
   parents: string
   activeValues: string
+  groupParent: string
+  groupActiveValue: string
   allowBlank: boolean
   allowUnknown99: boolean
   enabled: boolean
@@ -113,6 +118,8 @@ function ruleFromApi(rule: any): Rule {
     maxValue: rule.maxValue,
     parents: rule.parents || '',
     activeValues: rule.activeValues || '',
+    groupParent: rule.groupParent || '',
+    groupActiveValue: rule.groupActiveValue || '',
     allowBlank: Boolean(rule.allowBlank),
     allowUnknown99: Boolean(rule.allowUnknown99),
     enabled: Boolean(rule.enabled),
@@ -126,8 +133,12 @@ function ruleFromApi(rule: any): Rule {
 
 export default function EdcWorkspace() {
   const [helpOpen, setHelpOpen] = useState(false)
-  const [active, setActive] = useState('Dashboard')
-  const [subject, setSubject] = useState('')
+  const router = useRouter()
+  const pathname = usePathname()
+  const params = useParams<{ subjectId?: string }>()
+  const subject = params.subjectId || ''
+  const active = subject ? 'Subject detail' : Object.keys(workspaceRoutes).find((key) => workspaceRoutes[key] === pathname) || 'Dashboard'
+  const setActive = (label: string) => { if (workspaceRoutes[label] && pathname !== workspaceRoutes[label]) router.push(workspaceRoutes[label]) }
   const [rules, setRules] = useState<Rule[]>([])
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [databaseConnected, setDatabaseConnected] = useState(false)
@@ -229,14 +240,13 @@ export default function EdcWorkspace() {
     }
 
     selectedSubject.current = id
-    setSubject(id)
     setValues({})
     setVisits([])
     setDetailLoading(true)
     setLastSaved('')
     setSaved([...failedSaves.current].some((key) => key.startsWith(`${id}-`)) ? 'failed' : [...pendingSaves.current.keys()].some((key) => key.startsWith(`${id}-`)) ? 'saving' : 'saved')
     setQueryOnly(false)
-    setActive('Subject detail')
+    router.push(`/subjects/${encodeURIComponent(id)}`)
     await refreshSubjects()
   }
 
@@ -294,9 +304,28 @@ export default function EdcWorkspace() {
   )
 
   const handleNavClick = (label: string) => {
-    if (isProtectedPage(label) && !pageAccess[label]) { setAdminTarget(label); return }
+    if (isProtectedPage(label)) {
+      let access = emptyPageAccess
+      try { access = readPageAccess(sessionStorage) } catch {}
+      setPageAccess(access)
+      if (!access[label]) { setAdminTarget(label); return }
+    }
     setActive(label)
   }
+
+  useEffect(() => {
+    const checkExpiry = () => {
+      let access = emptyPageAccess
+      try { access = readPageAccess(sessionStorage) } catch {}
+      setPageAccess((current) => current['Rule Master'] === access['Rule Master'] && current['Audit Trail'] === access['Audit Trail'] ? current : access)
+      if (isProtectedPage(active) && !access[active]) setAdminTarget(active)
+    }
+    checkExpiry()
+    const timer = window.setInterval(checkExpiry, 1000)
+    window.addEventListener('focus', checkExpiry)
+    document.addEventListener('visibilitychange', checkExpiry)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', checkExpiry); document.removeEventListener('visibilitychange', checkExpiry) }
+  }, [active])
 
   useEffect(() => {
     ;(async () => {
@@ -316,6 +345,11 @@ export default function EdcWorkspace() {
 
   useEffect(() => {
     if (active !== 'Subject detail' || !subject) return
+    setValues({})
+    setVisits([])
+    setLastSaved('')
+    setQueryOnly(false)
+    if (queryTarget?.subject_id !== subject) setQueryTarget(null)
     void loadSubjectDetail(subject)
   }, [active, subject])
 
@@ -352,7 +386,7 @@ export default function EdcWorkspace() {
         target={queryTarget}
         subject={subject}
         rules={visibleRules}
-        values={values}
+        values={Object.assign({}, values, ...allVisits.map((visit) => Object.fromEntries(Object.entries(derivedValues((key) => values[`${key}-${visit}`])).map(([key, value]) => [`${key}-${visit}`, value]))))}
         visits={visits}
         queries={subjectQueries}
         saved={saved}
@@ -403,7 +437,7 @@ export default function EdcWorkspace() {
         <div className="nav-label">WORKSPACE</div>
         <nav>
           {nav.map(({ label, icon: Icon }) => (
-            <button key={label} type="button" className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => handleNavClick(label)}>
+            <button key={label} type="button" className={`nav-item ${(active === label || (label === 'Subjects' && active === 'Subject detail')) ? 'active' : ''}`} onClick={() => handleNavClick(label)}>
               <Icon size={17} />
               <span>{label}</span>
             </button>
@@ -413,7 +447,7 @@ export default function EdcWorkspace() {
         <div className="nav-label admin-label">ADMINISTRATION</div>
         <nav>
           {adminNav.map(({ label, icon: Icon }) => (
-            <button key={label} type="button" className={`nav-item ${active === label ? 'active' : ''}`} onClick={() => handleNavClick(label)}>
+            <button key={label} type="button" className={`nav-item ${(active === label || (label === 'Subjects' && active === 'Subject detail')) ? 'active' : ''}`} onClick={() => handleNavClick(label)}>
               <Icon size={17} />
               <span>{label}</span>
             </button>
@@ -459,8 +493,8 @@ export default function EdcWorkspace() {
 
         {content}
         {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
-        {adminTarget && <AdminAccessModal target={adminTarget} onCancel={() => setAdminTarget(null)} onSuccess={() => {
-          try { sessionStorage.setItem(pageSessionKeys[adminTarget], 'true') } catch {}
+        {adminTarget && <AdminAccessModal target={adminTarget} onCancel={() => { setAdminTarget(null); if (isProtectedPage(active) && !pageAccess[active]) setActive('Dashboard') }} onSuccess={() => {
+          try { sessionStorage.setItem(pageSessionKeys[adminTarget], JSON.stringify({ authenticatedAt: Date.now() })) } catch {}
           setPageAccess((current) => ({ ...current, [adminTarget]: true })); setActive(adminTarget); setAdminTarget(null)
         }} />}
         {toast && <div className="toast">{toast}</div>}
@@ -750,8 +784,9 @@ function Detail({
                     return (
                       <td key={currentKey}>
                         {isCollectedAtVisit(rule, visit) ? <CrfField rule={rule} cellKey={currentKey} value={currentValue}
+                          disabled={!isFieldActive(rule, (key) => values[`${key}-${visit}`])} readOnly={isDerivedField(rule.variableKey)}
                           hasQuery={openForRule.some((query) => query.timepoint === visit)} queryId={`query-${rule.variableKey}`}
-                          onChange={(value) => update(currentKey, value)} /> : <span id={currentKey} tabIndex={-1} className="not-collected">Not collected</span>}
+                          onChange={(value) => update(currentKey, value)} /> : <span id={currentKey} tabIndex={-1} className="not-collected">—</span>}
                       </td>
                     )
                   })}
@@ -1044,6 +1079,8 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
 function Export({ subjects }: { subjects: Subject[] }) {
   const [selectedSubject, setSelectedSubject] = useState('')
   const [selectedVisit, setSelectedVisit] = useState('ALL')
+  const [includeQueries, setIncludeQueries] = useState(false)
+  const exporting = useRef(false)
   const [history, setHistory] = useState<{ id: number; exported_at: string; user_name: string; subject_id: string | null; visit: string | null; file_name: string; export_type: string; status: string }[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -1054,6 +1091,8 @@ function Export({ subjects }: { subjects: Subject[] }) {
   }
   useEffect(() => { void refreshHistory().catch((e) => setError(e.message)) }, [])
   const download = async () => {
+    if (exporting.current) return
+    exporting.current = true
     setBusy(true); setError('')
     try {
       const response = await fetch(exportQuery, { cache: 'no-store' })
@@ -1065,34 +1104,23 @@ function Export({ subjects }: { subjects: Subject[] }) {
       document.body.appendChild(link); link.click(); link.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
       await refreshHistory()
-    } catch (e) { setError(e instanceof Error ? e.message : 'Export failed') } finally { setBusy(false) }
+    } catch (e) { setError(e instanceof Error ? e.message : 'Export failed') } finally { exporting.current = false; setBusy(false) }
   }
 
   const exportQuery = useMemo(() => {
     const params = new URLSearchParams()
     if (selectedSubject) params.set('subject', selectedSubject)
     if (selectedVisit !== 'ALL') params.set('visit', selectedVisit)
+    if (includeQueries) params.set('includeQueries', '1')
     return `/api/export${params.size ? `?${params.toString()}` : ''}`
-  }, [selectedSubject, selectedVisit])
+  }, [selectedSubject, selectedVisit, includeQueries])
 
   return (
     <div className="content">
-      <PageHeading eyebrow="DATA OPERATIONS" title="Export center" subtitle="Create local Excel workbooks" />
+      <PageHeading eyebrow="DATA OPERATIONS" title="Export center" subtitle="연구 데이터를 Excel 파일로 다운로드합니다." />
 
       <section className="panel" style={{ padding: 24 }}>
-        <div className="export-grid">
-          <div className="export-card">
-            <div className="export-icon">
-              <Download size={18} />
-            </div>
-            <div>
-              <h2>Export selection</h2>
-              <p>Choose all subjects, a specific subject, or a specific visit.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="toolbar compact-filter-controls export-controls" style={{ marginTop: 18 }}>
+        <div className="toolbar compact-filter-controls export-controls">
           <label className="field-label">
             Subject
             <select value={selectedSubject} onChange={(event) => setSelectedSubject(event.target.value)}>
@@ -1117,8 +1145,12 @@ function Export({ subjects }: { subjects: Subject[] }) {
             </select>
           </label>
 
-          <button className="primary-btn" disabled={busy} onClick={() => void download()}><Download size={15} /> {busy ? 'Exporting...' : 'Download .xlsx'}</button>
         </div>
+        <label className="check-control"><input type="checkbox" checked={includeQueries} onChange={(event) => setIncludeQueries(event.target.checked)} /> Query 시트 포함</label>
+        <button type="button" className="export-card export-download-card" aria-label="Excel 다운로드" aria-busy={busy} disabled={busy} onClick={() => void download()}>
+          <span className="export-icon"><Download size={18} aria-hidden="true" /></span>
+          <span className="export-card-copy" aria-live="polite"><strong>{busy ? 'Excel 파일 생성 중...' : 'Excel 다운로드'}</strong><span>{busy ? '잠시만 기다려주세요.' : '선택한 연구 데이터를 .xlsx 파일로 다운로드합니다.'}</span></span>
+        </button>
       </section>
       {error && <p role="alert">{error}</p>}
       <section className="panel table-panel export-history" style={{ marginTop: 20 }}>

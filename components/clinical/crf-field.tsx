@@ -2,13 +2,15 @@
 
 import { categoryChoices, type FieldMetadata } from '@/lib/crf-metadata'
 
-export function CrfField({ rule, cellKey, value, hasQuery, queryId, onChange }: {
+export function CrfField({ rule, cellKey, value, hasQuery, queryId, onChange, disabled = false, readOnly = false }: {
   rule: FieldMetadata; cellKey: string; value: string;
+  disabled?: boolean; readOnly?: boolean;
   hasQuery: boolean; queryId?: string; onChange: (value: string) => void;
 }) {
   const choices = categoryChoices(rule)
   const numeric = ['integer', 'real'].includes(rule.dataType) || (rule.dataType === 'character' && (rule.minValue != null || rule.maxValue != null))
   const shared = {
+    disabled, readOnly,
     id: cellKey, name: rule.variableKey, className: 'value-input', value,
     'aria-label': `${rule.label} ${cellKey.slice(-2)}`, 'aria-invalid': hasQuery,
     'aria-describedby': hasQuery ? queryId : undefined,

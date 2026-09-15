@@ -1,5 +1,3 @@
-import EdcWorkspace from '@/components/clinical/edc-workspace'
+import { redirect } from 'next/navigation'
 
-export default function Page() {
-  return <EdcWorkspace />
-}
+export default function Page() { redirect('/dashboard') }

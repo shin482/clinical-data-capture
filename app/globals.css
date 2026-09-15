@@ -187,7 +187,15 @@ tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }
 .recent-search-error { display: block; color: var(--destructive); margin-top: 4px; font-size: 11px; }
 .variable-primary-row { display: flex; align-items: baseline; gap: 6px; flex-wrap: nowrap; }
 .crf-table-panel .variable-primary-row.has-note .variable-main { min-width: 0; flex-shrink: 0; }
-.variable-primary-note { color: #173546; font-size: 11px; line-height: 1.5; white-space: nowrap; }
+.variable-primary-note { color: #173546; font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; }
+.export-download-card { width: min(100%, 420px); margin-top: 18px; background: white; cursor: pointer; }
+.export-download-card .export-card-copy { display: block; color: #294958; }
+.export-download-card .export-card-copy strong { display: block; margin-bottom: 8px; font-size: 13px; }
+.export-download-card .export-card-copy > span { display: block; color: #647b84; font-size: 11px; font-weight: 400; line-height: 1.5; }
+.export-download-card:hover:not(:disabled) { background: #f8fbfb; border-color: #168575; }
+.export-download-card:active:not(:disabled) { transform: translateY(1px); }
+.export-download-card:focus-visible { outline: 2px solid #087f83; outline-offset: 3px; }
+.export-download-card:disabled { opacity: .65; cursor: wait; }
 .export-controls { align-items: flex-end; }
 .export-controls :is(select, .primary-btn) { box-sizing: border-box; height: 30px; min-height: 30px; padding: 4px 7px; line-height: 20px; border-width: 1px; border-radius: 4px; }
 .export-controls .field-label { margin-bottom: 0; }

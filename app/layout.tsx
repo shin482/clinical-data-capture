@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import EdcWorkspace from '@/components/clinical/edc-workspace'
 
 export const metadata: Metadata = {
   title: 'Clinical Data Capture | Local EDC',
@@ -13,5 +14,5 @@ export const viewport: Viewport = {
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="ko" className="bg-background"><body className="antialiased">{children}</body></html>
+  return <html lang="ko" className="bg-background"><body className="antialiased"><EdcWorkspace />{children}</body></html>
 }

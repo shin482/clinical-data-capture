@@ -94,19 +94,88 @@ pnpm start --hostname 127.0.0.1
 
 ### 병원별 Docker 배포
 
+이 절은 소스 코드를 직접 빌드하지 않고 전달받은 Docker image archive를 Windows PC의 Docker Desktop에서 실행하는 병원 담당자용 설치 안내입니다. Docker Desktop은 EDC 서버를 격리된 **컨테이너**로 실행하고, 임상 데이터는 컨테이너 밖의 **Docker Volume**에 보존합니다. 컨테이너를 중지하거나 다시 시작해도 같은 Volume을 연결하면 데이터가 유지됩니다.
+
 하나의 `edc-app:latest` 이미지를 모든 병원에서 공통으로 사용합니다. 병원별로 `EDC_SITE`, `ADMIN_PASSWORD`, Docker Volume과 호스트 Port만 다르게 지정합니다. `/app/data`에는 반드시 병원별로 서로 다른 Volume을 연결합니다.
 
+#### 1단계: 전달 파일과 설정값 준비
+
+설치 전에 아래 항목을 한 폴더에 준비하거나 별도로 확인합니다.
+
+- `edc-app-latest.tar`: 검증된 EDC Docker image archive
+- `README.md`: 현재 설치·운영 안내서
+- 전달자가 제공한 archive SHA-256 값
+- 병원 책임자가 별도 보안 채널로 전달한 실제 관리자 비밀번호
+- 해당 병원의 Port와 Volume 이름
+
+현재 검증된 archive 정보는 다음과 같습니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 파일명 | `edc-app-latest.tar` |
+| SHA-256 | `7B4901F26567078C5101C921E2855B87B8FD0FCD81F058FBD7BA30D06BE3CFC2` |
+
+실제 비밀번호는 archive, README, Git 저장소에 넣지 않습니다. 파일명과 SHA-256은 인수인계 기록에도 함께 남깁니다.
+
+#### 2단계: Docker Desktop 설치와 실행 확인
+
+1. 병원 Windows PC에 Docker Desktop을 설치합니다.
+2. Docker Desktop을 실행하고 화면 왼쪽 아래의 Engine 상태가 실행 중인지 확인합니다.
+3. Windows PowerShell을 열어 다음 명령을 실행합니다.
+
 ```powershell
-docker build -t edc-app:latest .
+docker --version
+docker info
 ```
 
-| 병원 | `EDC_SITE` | Volume | Host Port |
-| --- | --- | --- | --- |
-| IJH | `IJH · 인제대학교 일산백병원` | `ijh-edc-data` | `3004` |
-| EWH | `EWH · 이화의료원` | `ewh-edc-data` | `3005` |
-| SCH | `SCH · 순천향대학교 서울병원` | `sch-edc-data` | `3006` |
+두 명령이 Docker 버전과 Server 정보를 출력해야 합니다. `docker info`가 연결 오류를 표시하면 이후 작업을 진행하지 말고 Docker Desktop이 완전히 시작될 때까지 기다린 뒤 다시 확인합니다.
 
-아래 명령의 `병원전용비밀번호를입력`은 각 병원 담당자가 실제 비밀번호로 교체합니다. 명령은 Windows PowerShell에서 그대로 실행할 수 있습니다.
+#### 3단계: archive 무결성 확인과 이미지 로드
+
+PowerShell에서 전달 파일이 있는 폴더로 이동한 뒤 SHA-256을 먼저 확인합니다.
+
+```powershell
+Get-FileHash .\edc-app-latest.tar -Algorithm SHA256
+```
+
+출력된 `Hash`가 전달받은 값과 한 글자라도 다르면 파일이 손상되었거나 다른 파일일 수 있으므로 **로드하거나 실행하지 말고 전달자에게 다시 요청합니다**. 일치하면 이미지를 로드하고 확인합니다.
+
+```powershell
+docker load -i .\edc-app-latest.tar
+docker images edc-app
+docker image inspect edc-app:latest
+```
+
+`docker load`에 `Loaded image: edc-app:latest`가 표시되고, 뒤의 두 확인 명령이 성공해야 합니다.
+
+#### 4단계: 병원 전용 Volume 생성
+
+Volume은 병원 데이터가 저장되는 영구 공간입니다. 병원별 이름은 다음과 같습니다.
+
+| 병원 | `EDC_SITE` | Volume | Host Port | Container |
+| --- | --- | --- | --- | --- |
+| IJH | `IJH · 인제대학교 일산백병원` | `ijh-edc-data` | `3004` | `edc-ijh` |
+| EWH | `EWH · 이화의료원` | `ewh-edc-data` | `3005` | `edc-ewh` |
+| SCH | `SCH · 순천향대학교 서울병원` | `sch-edc-data` | `3006` | `edc-sch` |
+
+해당 병원의 명령 **하나만** 실행합니다.
+
+```powershell
+# IJH
+docker volume create ijh-edc-data
+
+# EWH
+docker volume create ewh-edc-data
+
+# SCH
+docker volume create sch-edc-data
+```
+
+이미 존재하는 Volume 이름이 출력되어도 삭제하거나 다시 만들지 말고, 운영 기록과 `docker volume inspect <Volume 이름>`으로 해당 병원 Volume이 맞는지 확인합니다. 병원 간 Volume을 공유하거나 서로 바꾸어 연결하면 안 됩니다.
+
+#### 5단계: 병원별 컨테이너 실행
+
+아래 명령의 `병원전용비밀번호를입력`만 실제 비밀번호로 교체합니다. 작은따옴표는 유지하고, 실행한 명령이나 화면 캡처를 외부에 공유하지 않습니다. 명령은 Windows PowerShell에서 그대로 실행할 수 있습니다.
 
 IJH:
 
@@ -153,9 +222,37 @@ docker run -d `
   edc-app:latest
 ```
 
-접속 주소는 각각 `http://localhost:3004`, `http://localhost:3005`, `http://localhost:3006`입니다. 새 Volume에는 `data/edc-hospital-template.sqlite`를 복사하여 대상자·방문·입력값이 0인 병원 DB를 생성합니다. 기존 Volume이 연결되어 있으면 해당 DB를 그대로 사용하므로 컨테이너 재시작 후에도 데이터가 유지됩니다. 개발 DB `data/edc.sqlite`는 이미지에서 병원 Volume으로 복사되지 않습니다.
+#### 6단계: 접속과 최초 점검
+
+| 병원 | 이 PC에서 접속할 주소 |
+| --- | --- |
+| IJH | [http://localhost:3004](http://localhost:3004) |
+| EWH | [http://localhost:3005](http://localhost:3005) |
+| SCH | [http://localhost:3006](http://localhost:3006) |
+
+`localhost`는 EDC 컨테이너를 실행한 현재 PC를 뜻합니다. 다른 PC에서 접속하려면 병원 네트워크·방화벽·접근 통제 정책을 별도로 확인해야 하며, 이 문서의 로컬 설치 명령만으로 외부 접근 보안이 구성되지는 않습니다.
+
+브라우저 접속 후 다음을 순서대로 확인합니다.
+
+1. Sidebar와 Help에 해당 병원명이 표시된다.
+2. Rule Master 또는 Audit Trail에서 병원 관리자 비밀번호가 승인되고 잘못된 비밀번호는 거절된다.
+3. 테스트 Subject를 등록하고 입력값을 저장한 뒤 새로고침해도 값이 유지된다.
+4. Query와 Excel Export가 정상 동작한다.
+5. `docker restart <Container 이름>` 후에도 테스트 데이터가 유지된다.
+
+새 Volume에는 `data/edc-hospital-template.sqlite`를 복사하여 대상자·방문·입력값이 0인 병원 DB를 생성합니다. 기존 Volume이 연결되어 있으면 해당 DB를 그대로 사용하므로 컨테이너 재시작 후에도 데이터가 유지됩니다. 개발 DB `data/edc.sqlite`는 이미지에서 병원 Volume으로 복사되지 않습니다.
 
 각 Volume은 서로 독립적입니다. `ijh-edc-data`, `ewh-edc-data`, `sch-edc-data`를 서로 바꿔 연결하지 말고 하나의 Volume을 여러 EDC 컨테이너에서 동시에 사용하지 마십시오. 기존 컨테이너의 병원명·비밀번호·Volume 설정을 바꾸려면 먼저 해당 병원의 Volume을 확인하고 데이터 백업 절차를 거친 뒤 컨테이너 재생성 계획을 수립합니다. 기존 Volume을 삭제하거나 새 빈 Volume으로 임의 교체하지 않습니다.
+
+관계는 다음과 같습니다.
+
+| 구성 요소 | 의미 | 삭제 시 영향 |
+| --- | --- | --- |
+| Image `edc-app:latest` | 공통 EDC 프로그램 원본 | 실행 중 컨테이너와 Volume 데이터는 남지만 새 컨테이너 생성에 필요 |
+| Container `edc-ijh` 등 | 병원 설정으로 실행되는 EDC 서버 | 같은 설정과 Volume으로 재생성 가능 |
+| Volume `ijh-edc-data` 등 | Subject·입력값·Query·감사 기록이 있는 병원 DB | **임상 데이터가 소실될 수 있으므로 삭제 금지** |
+
+Docker Desktop의 **Images**에서는 공통 이미지를, **Containers**에서는 실행·중지 상태와 로그를, **Volumes**에서는 병원 데이터 공간을 확인할 수 있습니다. GUI에서 Delete/Remove를 누르기 전에 대상 이름과 백업을 반드시 확인합니다. 특히 Volume 삭제는 일반적인 재시작·장애 조치가 아닙니다.
 
 ## 4. 연구 변수와 입력 동작
 
@@ -339,6 +436,8 @@ DFU-DC_e-CRF_PartB_IJH.xlsx     # 연구 변수 기준 파일
 
 ### 상태와 로그 확인
 
+Docker Desktop GUI에서는 왼쪽 **Containers** 메뉴에서 컨테이너의 실행 상태와 Logs를 확인하고 Start/Stop/Restart를 수행할 수 있습니다. 명령줄에서는 아래 명령을 사용합니다.
+
 ```powershell
 # 실행 중인 컨테이너
 docker ps
@@ -381,6 +480,17 @@ docker logs --tail 100 edc-ijh
 ```
 
 강제 종료인 `docker kill`은 정상 운영 절차로 사용하지 않습니다. PC나 Docker를 종료하기 전에는 가능하면 `docker stop`으로 EDC 컨테이너를 먼저 중지합니다.
+
+### Port 충돌 처리
+
+`docker run`에서 `port is already allocated`, `Bind for 0.0.0.0:<PORT> failed`와 같은 오류가 나오면 지정한 Host Port를 다른 프로그램이나 컨테이너가 사용 중인 것입니다.
+
+```powershell
+docker ps --format "table {{.Names}}\t{{.Ports}}"
+Get-NetTCPConnection -LocalPort 3004 -ErrorAction SilentlyContinue
+```
+
+먼저 충돌 원인을 확인합니다. 기존 병원 EDC 컨테이너가 이미 있다면 새 컨테이너를 중복 실행하지 않습니다. 다른 프로그램 때문에 승인된 Port를 바꿔야 한다면 병원 담당자와 개발 담당자가 새 Port를 정하고 `-p 새Port:3000`만 변경한 뒤, 접속 주소와 운영 기록도 함께 갱신합니다. Volume 이름과 컨테이너 내부 Port `3000`은 바꾸지 않습니다.
 
 ### 안전한 SQLite 백업
 
@@ -469,6 +579,15 @@ docker system df
 6. 재시작 전 현재 Volume의 백업 가능 여부를 확인합니다.
 7. 문제가 해결되지 않으면 로그에서 실제 비밀번호와 대상자 정보를 제거한 뒤 개발 담당자에게 전달합니다.
 
+Docker 명령 자체가 실행되지 않으면 다음 순서로 범위를 좁힙니다.
+
+1. Docker Desktop이 실행 중인지 확인합니다.
+2. `docker info`가 Server 정보를 반환하는지 확인합니다.
+3. `docker images edc-app`으로 이미지가 있는지 확인합니다.
+4. `docker ps -a`에서 해당 컨테이너의 상태와 종료 코드를 확인합니다.
+5. `docker logs --tail 200 <Container 이름>`에서 최초 오류를 확인합니다.
+6. Port, 환경변수, Volume mount를 `docker inspect <Container 이름>`으로 확인합니다. 출력에는 비밀번호가 포함될 수 있으므로 공유 전에 제거합니다.
+
 Volume 삭제, `docker system prune --volumes`, DB 파일 직접 삭제, 빈 Volume으로 임의 교체는 장애 대응 명령으로 사용하지 않습니다.
 
 ## 11. 병원 전달 파일
@@ -484,17 +603,21 @@ Volume 삭제, `docker system prune --volumes`, DB 파일 직접 삭제, 빈 Vol
 
 ### 완성된 이미지를 전달하는 경우 필요한 파일
 
-- `edc-app:latest`를 저장한 image archive
+- 검증된 `edc-app:latest` image archive인 `edc-app-latest.tar`
 - `README.md` 또는 병원용 운영 절차서
-- 병원별 `EDC_SITE`, Volume 이름과 Port 정보
+- archive 파일명과 SHA-256이 기록된 인수인계 정보
+- 병원별 `EDC_SITE`, Volume 이름, Container 이름과 Port 정보
 - Git과 별도로 안전하게 전달하는 병원별 관리자 비밀번호
 
 이미지는 다음과 같이 파일로 저장하고 병원 PC에서 불러올 수 있습니다.
 
 ```powershell
 docker save -o edc-app-latest.tar edc-app:latest
+Get-FileHash .\edc-app-latest.tar -Algorithm SHA256
 docker load -i .\edc-app-latest.tar
 ```
+
+병원 담당자는 전달받은 SHA-256과 `Get-FileHash` 결과가 일치할 때만 `docker load`를 실행합니다. 관리자 비밀번호는 archive나 README와 같은 경로로 보내지 않고 병원의 승인된 별도 보안 채널을 사용합니다.
 
 ### 병원 전달에서 제외할 파일
 
@@ -510,6 +633,8 @@ docker load -i .\edc-app-latest.tar
 ## 12. 실제 병원 배포 체크리스트
 
 - [ ] 병원 PC 또는 서버에 Docker Desktop/Docker Engine을 설치했다.
+- [ ] Docker Desktop이 실행 중이며 `docker --version`과 `docker info`가 성공한다.
+- [ ] `edc-app-latest.tar`의 SHA-256이 전달받은 값과 일치한다.
 - [ ] `edc-app:latest` 이미지를 빌드하거나 image archive에서 불러왔다.
 - [ ] `docker image inspect edc-app:latest`가 성공한다.
 - [ ] 병원 전용 Docker Volume을 생성했다.
@@ -532,3 +657,4 @@ docker load -i .\edc-app-latest.tar
 - [ ] SQLite 백업을 생성하고 `integrity_check` 결과가 `ok`이다.
 - [ ] 새 복구 검증 Volume에서 백업 DB를 열어 대상자·Query·Export를 확인했다.
 - [ ] 백업 보관 위치, 주기, 담당자와 복구 승인 절차를 기록했다.
+- [ ] 실제 관리자 비밀번호, DB, 로그가 Git·README·일반 메신저에 포함되지 않았음을 확인했다.

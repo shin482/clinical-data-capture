@@ -39,6 +39,13 @@ async function main() {
   assert.equal(db().prepare("SELECT count(*) n FROM subjects WHERE subject_id='UNIQUE_TEST'").get().n, 1)
   assert.equal(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='UNIQUE_TEST' AND variable_key='vdt' AND status='OPEN'").get().n, 3)
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='id' AND subject_id=(SELECT id FROM subjects WHERE subject_id='UNIQUE_TEST')").get().value, 'UNIQUE_TEST')
+  assert.equal((await createSubjectApi(new NextRequest('http://localhost/api/subjects', { method: 'POST', body: JSON.stringify({ subjectId: 'KEEP_TEST' }) }))).status, 201)
+  const deleteSubjectApi = require('../app/api/subjects/[subjectId]/route.ts').DELETE
+  assert.equal((await deleteSubjectApi(new NextRequest('http://localhost/api/subjects/UNIQUE_TEST', { method: 'DELETE' }), { params: Promise.resolve({ subjectId: 'UNIQUE_TEST' }) })).status, 200)
+  assert.equal(db().prepare("SELECT count(*) n FROM subjects WHERE subject_id='UNIQUE_TEST'").get().n, 0)
+  assert.equal(db().prepare("SELECT count(*) n FROM visits WHERE subject_id NOT IN (SELECT id FROM subjects)").get().n, 0)
+  assert.equal(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='UNIQUE_TEST'").get().n, 0)
+  assert.equal(db().prepare("SELECT count(*) n FROM subjects WHERE subject_id='KEEP_TEST'").get().n, 1)
   const context = { params: Promise.resolve({ subjectId: 'DERIVED_TEST' }) }
   const save = (variableKey, value) => POST(new NextRequest('http://localhost/api/subjects/DERIVED_TEST', { method: 'POST', body: JSON.stringify({ timepoint: 'T1', variableKey, value }) }), context)
   const valueOf = async key => (await (await GET(new NextRequest('http://localhost'), context)).json()).values.find(v => v.variableKey === key)?.value

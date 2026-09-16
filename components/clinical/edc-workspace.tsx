@@ -4,7 +4,7 @@ import { useParams, usePathname, useRouter } from 'next/navigation'
 import { workspaceRoutes } from '@/lib/workspace-routes'
 import { derivedRules, derivedValues, isDerivedField, isFieldActive } from '@/lib/entry-rules'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, SlidersHorizontal, Users } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, SlidersHorizontal, Trash2, Users } from 'lucide-react'
 
 import { type Visit } from '@/lib/crf-metadata'
 import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, normalizeQueryStatus, emrReferences } from '@/lib/clinical-utils'
@@ -533,6 +533,8 @@ function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; 
   const [search, setSearch] = useState('')
   const [newId, setNewId] = useState<string | null>(null)
   const [createError, setCreateError] = useState('')
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState('')
 
   const create = async () => {
     const subjectId = newId?.trim()
@@ -544,6 +546,20 @@ function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; 
     setNewId(null)
     await refresh()
     notify('Subject가 등록되었습니다.')
+  }
+
+  const remove = async () => {
+    if (!deleteId) return
+    const response = await fetch(`/api/subjects/${encodeURIComponent(deleteId)}`, { method: 'DELETE' })
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}))
+      setDeleteError(body.error || '대상자 삭제에 실패했습니다.')
+      return
+    }
+    setDeleteId(null)
+    setDeleteError('')
+    await refresh()
+    notify('대상자가 삭제되었습니다.')
   }
 
   return (
@@ -586,7 +602,10 @@ function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; 
                   </td>
                   <td>{item.open_queries || '—'}</td>
                   <td className="muted">{formatDateTime(item.updated_at)}</td>
-                  <td>
+                  <td className="subject-row-actions">
+                    <button type="button" className="subject-delete-btn" aria-label={`${item.subject_id} 삭제`} onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setDeleteError(''); setDeleteId(item.subject_id) }}>
+                      <Trash2 size={14} /> 삭제
+                    </button>
                     <ChevronRight size={16} className="muted" />
                   </td>
                 </tr>
@@ -629,6 +648,22 @@ function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; 
           </form>
         </div>
       )}
+      {deleteId !== null && (
+        <div className="modal-backdrop">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-subject-title">
+            <div className="panel-head">
+              <div><h2 id="delete-subject-title">Subject {deleteId} 삭제</h2></div>
+              <button type="button" className="icon-btn subject-delete-close" aria-label="닫기" onClick={() => setDeleteId(null)}>×</button>
+            </div>
+            <p className="delete-warning">대상자를 삭제하면 복구할 수 없습니다.<br />정말 삭제하시겠습니까?</p>
+            <div className="detail-actions">
+              <button type="button" className="outline-btn" onClick={() => setDeleteId(null)}>취소</button>
+              <button type="button" className="danger-btn" onClick={() => void remove()}><Trash2 size={14} /> 삭제</button>
+              {deleteError && <span className="modal-inline-error" role="alert">{deleteError}</span>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -668,7 +703,7 @@ function Detail({
   const [highlight, setHighlight] = useState('')
   const shownVisits = allVisits.filter((visit) => !visitFilter || visit === visitFilter)
   const referencesFor = (rule: Rule) => emrReferences(rule)
-  const emrGroups = Array.from(new Set(rules.flatMap(referencesFor))).sort((a, b) => a.localeCompare(b, 'ko-KR', { sensitivity: 'base' }))
+  const emrGroups = Array.from(new Set(rules.flatMap(referencesFor))).sort((a, b) => a.localeCompare(b, 'ko'))
   if (rules.some((rule) => referencesFor(rule).length === 0)) emrGroups.push('EMR 위치 미지정')
   const shownRules = rules.filter((rule) => !emrFilter || (emrFilter === 'EMR 위치 미지정' ? referencesFor(rule).length === 0 : referencesFor(rule).includes(emrFilter)))
   useEffect(() => {
@@ -736,7 +771,7 @@ function Detail({
       {target && !rules.some((rule) => rule.variableKey === target.variable_key && isCollectedAtVisit(rule, target.timepoint)) && <section className="panel" style={{ padding: 20 }}>
         <h2>Historical Query</h2>
         <div id={`${target.variable_key}-${target.timepoint}`} tabIndex={-1} style={{ background: highlight === target.variable_key ? '#d5eee7' : undefined, padding: 12, borderRadius: 4 }}>
-          <strong>{target.timepoint} / {target.form_name} / {target.variable_name}</strong>
+          <strong>{target.timepoint} / {target.variable_name}</strong>
           <p>{target.message}</p><p>Recorded value: {values[`${target.variable_key}-${target.timepoint}`] || target.current_value || 'No value'}</p>
           <p>This variable or visit is no longer collected. The historical record is retained.</p>
         </div>
@@ -765,7 +800,13 @@ function Detail({
                     {display.note && <span className="variable-primary-note">{display.note}</span>}</div>
                     <small className="variable-subtitle">{display.secondary}</small>
                   </td>
-                  {showEmr && <td className="emr-reference">{referencesFor(rule).length ? referencesFor(rule).map((reference, index) => <div key={`${rule.variableKey}-emr-${index}`}>{reference}</div>) : 'EMR 위치 미지정'}</td>}
+                  {showEmr && (
+                    <td className="emr-reference">
+                      {referencesFor(rule).length
+                        ? referencesFor(rule).map((reference, index) => <div key={`${rule.variableKey}-emr-${index}`}>{reference}</div>)
+                        : 'EMR 위치 미지정'}
+                    </td>
+                  )}
 
                   {shownVisits.map((visit) => {
                     const currentKey = `${rule.variableKey}-${visit}`
@@ -810,7 +851,12 @@ function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects:
 
   const [selectedSubject, setSelectedSubject] = useState<string | null>(null)
   useEffect(() => { if (selectedSubject && !summary.some((item) => item.subject_id === selectedSubject)) setSelectedSubject(null) }, [summary, selectedSubject])
-  const selectedQueries = selectedSubject ? queries.filter((query) => query.subject_id === selectedSubject) : []
+  const visitOrder = new Map(allVisits.map((visit, index) => [visit, index]))
+  const selectedQueries = selectedSubject
+    ? queries
+      .filter((query) => query.subject_id === selectedSubject)
+      .sort((a, b) => (visitOrder.get(a.timepoint) ?? Number.MAX_SAFE_INTEGER) - (visitOrder.get(b.timepoint) ?? Number.MAX_SAFE_INTEGER))
+    : []
 
   return (
     <div className="content">
@@ -860,7 +906,6 @@ function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects:
             <thead>
               <tr>
                 <th>VISIT</th>
-                <th>FORM</th>
                 <th>VARIABLE</th>
                 <th>TYPE</th>
                 <th>MESSAGE</th>
@@ -872,7 +917,7 @@ function Queries({ queries, subjects, onOpen }: { queries: QueryRow[]; subjects:
               {selectedQueries.map((query) => (
                 <tr key={`${query.subject_id}-${query.timepoint}-${query.variable_key}-${query.query_type}`} tabIndex={0} onClick={() => onOpen(query)} onKeyDown={(e) => { if (e.key === 'Enter') onOpen(query) }}>
                   <td>{query.timepoint}</td>
-                  <td>{query.form_name}</td><td><button className="back-btn" onClick={(e) => { e.stopPropagation(); onOpen(query) }}>{query.variable_name || query.variable_key}</button></td>
+                  <td><button className="back-btn" onClick={(e) => { e.stopPropagation(); onOpen(query) }}>{query.variable_name || query.variable_key}</button></td>
                   <td>{query.query_type}</td>
                   <td>{query.message}</td>
                   <td>
@@ -1031,7 +1076,7 @@ function Rules({ rules, refresh, notify }: { rules: Rule[]; refresh: () => Promi
                 <input value={editing.maxValue} onChange={(event) => setEditing({ ...editing, maxValue: event.target.value })} />
               </label>
               <label>Parent variable<input value={editing.parents} onChange={(event) => setEditing({ ...editing, parents: event.target.value })} /></label>
-              <label>Active values<input value={editing.activeValues} onChange={(event) => setEditing({ ...editing, activeValues: event.target.value })} /><small>1 ?? 0|1 ? *: ??? ?? ? !=99: 99? ??? ??</small></label>
+              <label>Active values<input value={editing.activeValues} onChange={(event) => setEditing({ ...editing, activeValues: event.target.value })} /></label>
               <label>Group parent<input value={editing.groupParent} onChange={(event) => setEditing({ ...editing, groupParent: event.target.value })} /></label>
               <label>Group active values<input value={editing.groupActiveValue} onChange={(event) => setEditing({ ...editing, groupActiveValue: event.target.value })} /></label>
               <label>

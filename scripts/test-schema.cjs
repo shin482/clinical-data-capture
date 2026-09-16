@@ -23,10 +23,10 @@ async function main() {
   legacy.exec(fs.readFileSync(path.join(root, 'lib/db/index.ts'), 'utf8').match(/database.exec\(`([\s\S]*?)`\)/)[1])
   legacy.exec('ALTER TABLE clinical_values ADD COLUMN missing_reason TEXT')
   const insert = legacy.prepare('INSERT INTO variable_definitions(variable_key,label,section,data_type) VALUES(?,?,?,?)')
-  for (const row of schema) insert.run(row.variableKey === 'pad' ? 'pvd' : row.variableKey === 'amp_dt' ? 'ampdt_lt' : row.variableKey, 'Old label', row.section, row.dataType)
+  for (const row of schema) insert.run(row.variableKey === 'pad' ? 'pvd' : row.variableKey === 'amp' ? 'amp_lt' : row.variableKey === 'amp_dt' ? 'ampdt_lt' : row.variableKey, 'Old label', row.section, row.dataType)
   insert.run('dfu_wnd', 'Legacy ulcer flag', 'Legacy', 'categorical')
   legacy.exec("INSERT INTO subjects(id,subject_id) VALUES(1,'Subject 2'); INSERT INTO visits(id,subject_id,timepoint) VALUES(1,1,'T1'),(2,1,'T2'),(3,1,'T3')")
-  for (const [key, value, visit] of [['pvd', '1', 1], ['ampdt_lt', '2026-01-15', 2], ['dfu_wnd', '1', 1], ['sex', '0', 2]]) {
+  for (const [key, value, visit] of [['pvd', '1', 1], ['amp_lt', '1', 1], ['ampdt_lt', '2026-01-15', 2], ['dfu_wnd', '1', 1], ['sex', '0', 2]]) {
     legacy.prepare('INSERT INTO clinical_values(subject_id,visit_id,variable_key,value) VALUES(1,?,?,?)').run(visit, key, value)
     legacy.prepare("INSERT INTO queries(subject_id,visit_id,timepoint,variable_key,query_type,message,status) VALUES('Subject 2',?,?,?,'REVIEW','Confirm source','OPEN')").run(visit, `T${visit}`, key)
     legacy.prepare("INSERT INTO audit_logs(subject_id,timepoint,variable_key,new_value,modified_by) VALUES('Subject 2',?,?,?,'tester')").run(`T${visit}`, key, value)
@@ -40,24 +40,27 @@ async function main() {
   const variables = await variablesApi.GET().json()
   assert.equal(variables.length, 71)
   assert.deepEqual(compare(source, variables), { missing: [], unexpected: [], mismatches: [] })
-  assert.equal(db().prepare('SELECT count(*) AS n FROM clinical_values').get().n, 5)
+  assert.equal(db().prepare('SELECT count(*) AS n FROM clinical_values').get().n, 6)
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='id'").get().value, 'Subject 2')
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='pad'").get().value, '1')
+  assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='amp'").get().value, '1')
+  assert.equal(db().prepare("SELECT count(*) AS n FROM clinical_values WHERE variable_key='amp_lt'").get().n, 0)
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='amp_dt'").get().value, '2026-01-15')
   assert.equal(db().prepare("SELECT study_active FROM variable_definitions WHERE variable_key='dfu_wnd'").get().study_active, 0)
   assert.equal(db().prepare("SELECT status FROM queries WHERE variable_key='dfu_wnd'").get().status, 'ARCHIVED')
   assert.equal(db().prepare("SELECT status FROM queries WHERE variable_key='sex'").get().status, 'ARCHIVED')
-  assert.ok(db().prepare("SELECT * FROM schema_migration_archive WHERE table_name='clinical_values'").all().length === 4)
+  assert.ok(db().prepare("SELECT * FROM schema_migration_archive WHERE table_name='clinical_values'").all().length === 5)
   const archivedCount = db().prepare('SELECT count(*) AS n FROM schema_migration_archive').get().n
   migrateStudySchema(db())
   assert.equal(db().prepare('SELECT count(*) AS n FROM schema_migration_archive').get().n, archivedCount, 'Migration is idempotent')
 
   const queries = await require('../app/api/queries/route.ts').GET().json()
-  for (const key of ['pad', 'amp_dt']) {
+  const { queryHistoryForm } = require('../lib/query-history.ts')
+  for (const key of ['pad', 'amp', 'amp_dt']) {
     const query = queries.find((row) => row.variable_key === key)
     const definition = variables.find((row) => row.variableKey === key)
     assert.equal(query.variable_name, definition.label)
-    assert.equal(query.form_name, definition.section)
+    assert.equal(query.form_name, queryHistoryForm(definition.section))
     assert.ok(query.timepoint && query.subject_id)
   }
   const audit = require('../app/api/audit/route.ts').GET

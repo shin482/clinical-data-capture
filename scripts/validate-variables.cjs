@@ -12,7 +12,7 @@ function readSource() {
   assert.deepEqual(rows[0].slice(0, 5), ['변수명', '한글 항목명', '수집시점 해당여부(T1)', '수집시점 해당여부(T2)', '수집시점 해당여부(T3)'])
   const variables = rows.slice(1).filter((row) => String(row[0]).trim()).map((row) => {
     for (const cell of row.slice(2, 5)) assert.ok(cell === 'O' || cell === '', `Unexpected visit marker for ${row[0]}`)
-    return { variableKey: row[0], label: row[1], timepointT1: row[2] === 'O', timepointT2: row[3] === 'O', timepointT3: row[4] === 'O' }
+    return { variableKey: row[0] === 'amp_lt' ? 'amp' : row[0], label: row[1], timepointT1: row[2] === 'O', timepointT2: row[3] === 'O', timepointT3: row[4] === 'O' }
   })
   assert.equal(variables.length, 71)
   assert.equal(new Set(variables.map((row) => row.variableKey)).size, 71)

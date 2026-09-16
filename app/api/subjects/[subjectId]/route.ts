@@ -77,3 +77,18 @@ export async function POST(request: NextRequest, context: { params: Promise<{ su
   return NextResponse.json({ ok: true, savedAt })
   })()
 }
+
+export async function DELETE(_request: NextRequest, context: { params: Promise<{ subjectId: string }> }) {
+  const { subjectId } = await context.params
+  const subject = db().prepare('SELECT id FROM subjects WHERE subject_id=?').get(subjectId) as { id: number } | undefined
+  if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
+  db().transaction(() => {
+    db().prepare('DELETE FROM clinical_values WHERE subject_id=?').run(subject.id)
+    db().prepare('DELETE FROM queries WHERE subject_id=?').run(subjectId)
+    db().prepare('DELETE FROM visits WHERE subject_id=?').run(subject.id)
+    db().prepare('DELETE FROM export_history WHERE subject_id=?').run(subjectId)
+    db().prepare('DELETE FROM audit_logs WHERE subject_id=?').run(subjectId)
+    db().prepare('DELETE FROM subjects WHERE id=?').run(subject.id)
+  })()
+  return NextResponse.json({ ok: true })
+}

@@ -54,8 +54,16 @@ button { cursor: pointer; }
 .brand span { display: block; margin-top: 4px; color: #87a4ae; font-family: var(--font-geist-mono); font-size: 9px; letter-spacing: .05em; }
 .required-mark { color: #c84848; }
 .modal-inline-error { color: var(--destructive); font-size: 11px; line-height: 1.3; }
+.subject-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.subject-delete-btn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #b44a4a; padding: 5px 7px; font-size: 10px; cursor: pointer; }
+.subject-delete-btn:hover { background: #fff0f0; }
+.delete-warning { margin: -10; margin-bottom: 10; padding: 0 20px 18px; color: #6e4a4a; font-size: 12px; line-height: 1.6; }
+.subject-delete-close { width: 32px; height: 32px; border-radius: 4px; padding: 0; font-size: 22px; font-weight: 400; line-height: 1; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
+.subject-delete-close:hover { background: #eef3f4; color: #526b76; }
+.danger-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid #b94343; border-radius: 4px; background: #b94343; color: white; padding: 9px 13px; font-size: 11px; font-weight: 600; }
+.danger-btn:hover { background: #a53a3a; }
 .crf-display-options { display: flex; align-items: center; justify-content: flex-start; gap: 8px; margin-bottom: 12px; }
-.emr-reference { white-space: normal; word-break: normal; overflow-wrap: anywhere; }
+.emr-reference { white-space: normal; overflow-wrap: anywhere; }
 .site-switcher { display: flex; align-items: center; gap: 9px; padding: 11px 10px; margin-bottom: 24px; border: 1px solid #2d4a58; border-radius: 5px; background: #173747; }
 .site-switcher > div { flex: 1; }.site-switcher strong { display: block; margin-top: 3px; font-size: 11px; color: white; }.site-dot, .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #50c3a1; box-shadow: 0 0 0 3px #50c3a122; }
 .eyebrow, .nav-label { color: #7c929d; font-family: var(--font-geist-mono); font-size: 9px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }.nav-label { padding: 0 10px 8px; }.admin-label { margin-top: 25px; }
@@ -212,5 +220,5 @@ tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }
 .subject-filter-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
 .subject-filter-bar .filter-box { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; min-width: 0; flex: 0 1 auto; margin: 0; padding: 0; background: transparent; border: 0; font-size: 11px; color: #647b84; white-space: nowrap; }
 .subject-filter-bar .filter-box select { width: auto; max-width: 200px; min-width: 90px; height: 30px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 4px; background: white; color: var(--foreground); font-size: 12px; }
-.subject-filter-bar .emr-filter select { width: 130px; min-width: 130px; max-width: 130px; flex: 0 0 200px; }
+.subject-filter-bar .emr-filter select { width: 130px; min-width: 130px; max-width: 130px; }
 @media (max-width: 480px) { .subject-filter-bar .filter-box { width: 100%; } .subject-filter-bar .filter-box select { flex: 1; min-width: 0; max-width: none; } }

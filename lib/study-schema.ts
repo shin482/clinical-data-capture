@@ -7,6 +7,6 @@ import type { VariableDefinition } from './db'
 // authoritative sheet does not define them. Removed parent references are cleared.
 export const studyVariables: VariableDefinition[] = definitions
 export const studyVariableKeys = new Set(studyVariables.map((variable) => variable.variableKey))
-export const legacyVariableAliases: Record<string, string> = { pvd: 'pad', ampdt_lt: 'amp_dt' }
+export const legacyVariableAliases: Record<string, string> = { pvd: 'pad', amp_lt: 'amp', ampdt_lt: 'amp_dt' }
 export const canonicalVariableKey = (key: string) => legacyVariableAliases[key] || key
-export const studySchemaVersion = 'part-b-final-71-v3'
+export const studySchemaVersion = 'part-b-final-71-v4'

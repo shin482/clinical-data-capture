@@ -7,12 +7,16 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
 const { readRecentSearches, writeRecentSearches, updateRecentSearches } = require('../lib/recent-searches.ts')
 const { variableDisplay, orderedGroups } = require('../lib/variable-display.ts')
 const { normalizeQueryStatus, getSubjectQueryStatus, emrReferences } = require('../lib/clinical-utils.ts')
+const { queryHistoryForm, removedQueryHistoryForms } = require('../lib/query-history.ts')
 assert.deepEqual(emrReferences({ emrLocation: '초기 간호 기록지\r\n\r\n 외래 초진 기록 \n입원 초진 기록' }), ['초기 간호 기록지', '외래 초진 기록', '입원 초진 기록'])
 assert.equal(normalizeQueryStatus('ARCHIVED'), 'RESOLVED')
 assert.equal(normalizeQueryStatus('RESOLVED'), 'RESOLVED')
 assert.equal(normalizeQueryStatus('OPEN'), 'OPEN')
 assert.equal(getSubjectQueryStatus([{ status: 'ARCHIVED' }, { status: 'OPEN' }]), 'OPEN')
 assert.equal(getSubjectQueryStatus([{ status: 'ARCHIVED' }]), 'RESOLVED')
+assert.deepEqual(removedQueryHistoryForms, ['기본정보 / 생활습관', '과거력 / 진단', '치료 / 약물 / 영상', '신체계측 / Vital'])
+for (const form of removedQueryHistoryForms) assert.equal(queryHistoryForm(form), '')
+for (const form of ['신체활동', 'DFU 평가', '검사결과', '기타']) assert.equal(queryHistoryForm(form), form)
 const storage = new Map()
 global.localStorage = { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) }
 let history = []

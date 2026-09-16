@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
-import { appConfig } from '@/lib/app-config'
 
 const guides = [
   { name: 'Dashboard', description: '등록 대상자 수와 Query, 데이터 입력 진행률을 확인합니다.' },
@@ -14,7 +13,7 @@ const guides = [
   { name: 'User Management', description: '사용자 및 권한 관리 메뉴입니다. 현재 준비 중입니다.', admin: true },
 ]
 
-export function HelpModal({ onClose }: { onClose: () => void }) {
+export function HelpModal({ onClose, version, site }: { onClose: () => void; version: string; site: string }) {
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
@@ -31,6 +30,6 @@ export function HelpModal({ onClose }: { onClose: () => void }) {
       <button autoFocus type="button" className="icon-btn" aria-label="Close Help" onClick={onClose}><X size={18} /></button>
     </div>
     <dl className="help-guides">{guides.map((guide) => <div key={guide.name}><dt>{guide.name} {guide.admin && <span className="status-pill neutral">관리자 전용</span>}</dt><dd>{guide.description}</dd></div>)}</dl>
-    <dl className="help-system"><div><dt>EDC Version</dt><dd>{appConfig.version}</dd></div><div><dt>Site</dt><dd>{appConfig.site}</dd></div></dl>
+    <dl className="help-system"><div><dt>EDC Version</dt><dd>{version}</dd></div><div><dt>Site</dt><dd>{site}</dd></div></dl>
   </dialog>
 }

@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { db } from '@/lib/db'
 import { sortSubjectsNumerically, normalizeQueryStatus } from '@/lib/clinical-utils'
-import '@/lib/db/seed'
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams

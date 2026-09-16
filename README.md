@@ -18,7 +18,7 @@ Next.js 서버가 실행되는 장치의 SQLite 파일에 데이터를 저장합
 | User Management | `/user-management` | 안내 화면만 구현, 사용자·권한 관리는 준비 중 |
 | Settings / Backup | `/settings` | 안내 화면만 구현, 설정·백업 UI는 준비 중 |
 
-`/`로 접속하면 `/dashboard`로 이동합니다. 화면의 기관명과 표시 버전은 `lib/app-config.ts`에서 관리합니다. 패키지 버전은 `0.1.0`, 화면 표시 버전은 `v1.0`으로 서로 다릅니다.
+`/`로 접속하면 `/dashboard`로 이동합니다. 화면의 기관명은 실행 환경의 `EDC_SITE`로 지정하며, 값이 없으면 `lib/app-config.ts`의 기본 기관명을 사용합니다. 패키지 버전은 `0.1.0`, 화면 표시 버전은 `v1.0`으로 서로 다릅니다.
 
 ## 2. 기술 구성
 
@@ -40,7 +40,7 @@ Next.js 서버가 실행되는 장치의 SQLite 파일에 데이터를 저장합
 - pnpm: 저장소에 pnpm 버전은 고정되어 있지 않습니다.
 - DB를 생성할 로컬 디렉터리의 쓰기 권한
 
-현재 `pnpm-lock.yaml`은 SQLite·Excel 의존성을 포함하지만, `package-lock.json`에는 해당 의존성 등이 빠져 있습니다. 아래는 pnpm 기준이며, npm을 사용하려면 먼저 잠금 파일을 동기화해야 합니다. 현재 상태에서 `npm ci`를 그대로 사용하는 것은 피합니다.
+`pnpm-lock.yaml`과 `package-lock.json` 모두 SQLite·Excel 의존성을 포함합니다. 로컬 개발은 아래 pnpm 명령을 사용하고, Docker 이미지는 `package-lock.json`을 기준으로 `npm ci`를 실행합니다.
 
 ### 개발 서버
 
@@ -61,17 +61,19 @@ pnpm dev --hostname 127.0.0.1 --port 3001
 
 ### 환경 변수
 
-필수 환경 변수는 없습니다. 필요하면 루트에 `.env.local`을 생성합니다.
+관리자 화면을 사용하려면 `ADMIN_PASSWORD`가 필요합니다. 병원 Docker 배포에서는 `ADMIN_PASSWORD`와 `EDC_SITE`를 모두 명시합니다. 로컬 개발에서 필요하면 루트에 `.env.local`을 생성합니다.
 
 ```dotenv
 EDC_DATA_DIR=./data
 ADMIN_PASSWORD=replace-with-your-local-password
+EDC_SITE=EWH · 이화의료원
 ```
 
 | 변수 | 기본값 | 역할 |
 | --- | --- | --- |
 | `EDC_DATA_DIR` | 실행 디렉터리의 `data` | `edc.sqlite` 저장 디렉터리 |
-| `ADMIN_PASSWORD` | `123456` | Rule Master·Audit Trail 화면 진입 시 확인하는 비밀번호 |
+| `ADMIN_PASSWORD` | 없음 | Rule Master·Audit Trail 화면 진입 시 확인하는 병원별 비밀번호 |
+| `EDC_SITE` | `EWH · 이화의료원` | Sidebar와 Help에 표시하는 병원명 |
 
 `.env.local`은 Git에서 제외됩니다. 직접 `node scripts/...`로 실행하는 스크립트는 Next.js의 환경 파일 로더를 사용하지 않으므로, 데이터 경로를 바꾸려면 셸 환경 변수로 전달해야 합니다.
 
@@ -88,7 +90,72 @@ pnpm build
 pnpm start --hostname 127.0.0.1
 ```
 
-`next.config.mjs`에 `typescript.ignoreBuildErrors: true`가 설정되어 있으므로 빌드 성공만으로 타입 검사를 통과했다고 판단할 수 없습니다. 타입 검사를 별도로 실행합니다. DB 모듈은 로드 시 초기화되므로 빌드·테스트 작업에서도 `EDC_DATA_DIR`가 어느 위치를 가리키는지 확인합니다.
+`next.config.mjs`에 `typescript.ignoreBuildErrors: true`가 설정되어 있으므로 빌드 성공만으로 타입 검사를 통과했다고 판단할 수 없습니다. 타입 검사를 별도로 실행합니다. DB는 실제 `db()` 호출 시 초기화되며, 빌드 중 Route Handler import만으로 DB 파일이나 migration을 실행하지 않습니다.
+
+### 병원별 Docker 배포
+
+하나의 `edc-app:latest` 이미지를 모든 병원에서 공통으로 사용합니다. 병원별로 `EDC_SITE`, `ADMIN_PASSWORD`, Docker Volume과 호스트 Port만 다르게 지정합니다. `/app/data`에는 반드시 병원별로 서로 다른 Volume을 연결합니다.
+
+```powershell
+docker build -t edc-app:latest .
+```
+
+| 병원 | `EDC_SITE` | Volume | Host Port |
+| --- | --- | --- | --- |
+| IJH | `IJH · 인제대학교 일산백병원` | `ijh-edc-data` | `3004` |
+| EWH | `EWH · 이화의료원` | `ewh-edc-data` | `3005` |
+| SCH | `SCH · 순천향대학교 서울병원` | `sch-edc-data` | `3006` |
+
+아래 명령의 `병원전용비밀번호를입력`은 각 병원 담당자가 실제 비밀번호로 교체합니다. 명령은 Windows PowerShell에서 그대로 실행할 수 있습니다.
+
+IJH:
+
+```powershell
+docker volume create ijh-edc-data
+
+docker run -d `
+  --name edc-ijh `
+  --restart unless-stopped `
+  -p 3004:3000 `
+  -e 'EDC_SITE=IJH · 인제대학교 일산백병원' `
+  -e 'ADMIN_PASSWORD=병원전용비밀번호를입력' `
+  -v "ijh-edc-data:/app/data" `
+  edc-app:latest
+```
+
+EWH:
+
+```powershell
+docker volume create ewh-edc-data
+
+docker run -d `
+  --name edc-ewh `
+  --restart unless-stopped `
+  -p 3005:3000 `
+  -e 'EDC_SITE=EWH · 이화의료원' `
+  -e 'ADMIN_PASSWORD=병원전용비밀번호를입력' `
+  -v "ewh-edc-data:/app/data" `
+  edc-app:latest
+```
+
+SCH:
+
+```powershell
+docker volume create sch-edc-data
+
+docker run -d `
+  --name edc-sch `
+  --restart unless-stopped `
+  -p 3006:3000 `
+  -e 'EDC_SITE=SCH · 순천향대학교 서울병원' `
+  -e 'ADMIN_PASSWORD=병원전용비밀번호를입력' `
+  -v "sch-edc-data:/app/data" `
+  edc-app:latest
+```
+
+접속 주소는 각각 `http://localhost:3004`, `http://localhost:3005`, `http://localhost:3006`입니다. 새 Volume에는 `data/edc-hospital-template.sqlite`를 복사하여 대상자·방문·입력값이 0인 병원 DB를 생성합니다. 기존 Volume이 연결되어 있으면 해당 DB를 그대로 사용하므로 컨테이너 재시작 후에도 데이터가 유지됩니다. 개발 DB `data/edc.sqlite`는 이미지에서 병원 Volume으로 복사되지 않습니다.
+
+각 Volume은 서로 독립적입니다. `ijh-edc-data`, `ewh-edc-data`, `sch-edc-data`를 서로 바꿔 연결하지 말고 하나의 Volume을 여러 EDC 컨테이너에서 동시에 사용하지 마십시오. 기존 컨테이너의 병원명·비밀번호·Volume 설정을 바꾸려면 먼저 해당 병원의 Volume을 확인하고 데이터 백업 절차를 거친 뒤 컨테이너 재생성 계획을 수립합니다. 기존 Volume을 삭제하거나 새 빈 Volume으로 임의 교체하지 않습니다.
 
 ## 4. 연구 변수와 입력 동작
 
@@ -98,7 +165,9 @@ pnpm start --hostname 127.0.0.1
 - 기준 시트: `part B 변수목록 수정_최종본`
 - 앱의 변수 정의: `lib/study-variables.json`
 - 스키마 버전 및 이전 변수명 매핑: `lib/study-schema.ts`
-- 전체 변수 **71개**, 기본 수집 대상은 **T1 71개 / T2 55개 / T3 55개**입니다.
+- 활성 연구 변수는 **71개**, 기본 수집 대상은 **T1 71개 / T2 53개 / T3 53개**입니다.
+
+SQLite의 `variable_definitions`에는 migration 호환성과 기존 데이터 보존을 위한 비활성 legacy 정의 8개가 함께 남아 있어 전체 행 수는 79개입니다. 앱, Rule Master, Data Entry와 Export가 사용하는 authoritative schema는 `study_active=1`인 71개입니다. 따라서 DB 전체 행 수 79개를 활성 연구 변수 수로 해석하거나 71개 schema에 변수를 임의로 추가하지 않습니다.
 
 변수명·한글 항목명·순서·수집 시점은 기준 시트를 따릅니다. 자료형·허용 범위·필수 여부 등은 기존 EDC 규칙을 유지한 것으로, 모두 Excel 시트에서 정의된 것은 아닙니다. 실행 시 Excel을 자동으로 읽어 JSON을 다시 만드는 구조도 아닙니다.
 
@@ -119,7 +188,7 @@ API는 `NOT_ASSESSED`, `NOT_APPLICABLE`, `UNKNOWN`, `NOT_DONE` 결측 사유를 
 
 ## 5. 데이터 저장과 마이그레이션
 
-DB 모듈을 처음 로드하면 저장 디렉터리와 `edc.sqlite`를 생성하고 테이블 및 버전별 마이그레이션을 적용합니다. 별도의 초기 seed 명령은 필요하지 않으며, 샘플 대상자 데이터는 자동으로 넣지 않습니다.
+서버에서 처음 `db()`를 호출하면 저장 디렉터리와 `edc.sqlite`를 생성하고 테이블 및 버전별 마이그레이션을 적용합니다. 별도의 초기 seed 명령은 필요하지 않으며, 샘플 대상자 데이터는 자동으로 넣지 않습니다.
 
 | 테이블 | 용도 |
 | --- | --- |
@@ -132,7 +201,7 @@ DB 모듈을 처음 로드하면 저장 디렉터리와 `edc.sqlite`를 생성�
 | `schema_migrations`, `schema_migration_archive` | 적용 버전과 변경 전 데이터 보관 |
 | `users`, `hospital_settings` | 테이블만 마련된 사용자·기관 설정 영역 |
 
-기존 `pvd`는 `pad`, `ampdt_lt`는 `amp_dt`로 매핑합니다. 사용하지 않는 변수는 비활성화하고 관련 Query를 보관 상태로 전환하며, 이전 감사 기록은 유지합니다. 구·신 변수 데이터가 충돌하면 덮어쓰지 않고 마이그레이션을 중단합니다.
+기존 `pvd`는 `pad`, `amp_lt`는 `amp`, `ampdt_lt`는 `amp_dt`로 매핑합니다. 사용하지 않는 변수는 비활성화하고 관련 Query를 보관 상태로 전환하며, 이전 감사 기록은 유지합니다. 구·신 변수 데이터가 충돌하면 덮어쓰지 않고 마이그레이션을 중단합니다.
 
 기존 DB를 명시적으로 백업한 후 스키마를 적용·검증하려면 다음을 실행합니다.
 
@@ -203,7 +272,7 @@ pnpm exec tsc --noEmit
 | `test-crf.cjs` | 필드 저장·오류·결측·Query 해결, 진행률, 화면 접근 만료, 감사 기록, 내보내기 |
 | `test-search-ui.cjs` | 최근 검색어·삭제·중복 제거, 변수 표시명, 그룹 정렬, 상태 표시 |
 
-DB 통합 테스트 3개는 시스템 임시 디렉터리에 독립 DB를 생성하고 `EDC_DATA_DIR`를 해당 위치로 바꿉니다. 프로젝트 임상 DB는 사용하지 않으며 임시 DB는 자동 삭제하지 않습니다. `test-crf.cjs`의 비밀번호 검사는 기본값 `123456`을 전제로 하므로 별도 관리자 비밀번호가 설정되지 않은 테스트 셸을 사용합니다.
+DB 통합 테스트 3개는 시스템 임시 디렉터리에 독립 DB를 생성하고 `EDC_DATA_DIR`를 해당 위치로 바꿉니다. 프로젝트 임상 DB는 사용하지 않으며 임시 DB는 자동 삭제하지 않습니다. `test-crf.cjs`의 관리자 인증 검사를 실행할 때는 테스트 셸에 `$env:ADMIN_PASSWORD = '123456'`을 지정합니다.
 
 테스트는 서버를 띄우지 않고 API 함수를 직접 호출합니다. `test-search-ui.cjs`도 브라우저 자동화 테스트가 아닌 보조 함수 검사입니다. 실제 화면 레이아웃·클릭·자동 저장 전환은 별도로 확인해야 합니다.
 
@@ -258,8 +327,208 @@ DFU-DC_e-CRF_PartB_IJH.xlsx     # 연구 변수 기준 파일
 - 사용자 관리, 설정·백업 UI, EMR 연동은 구현되어 있지 않습니다. 코드의 일부 EMR 참조 및 방문 표시값은 예시입니다.
 - 화면의 `Local only` 문구는 네트워크 접근을 제한하는 기능이 아닙니다. 위 실행 예시는 개발 서버를 `127.0.0.1`에 바인딩합니다. 데이터는 브라우저 장치가 아닌 **앱 서버 장치**에 저장됩니다.
 - 날짜 등 모든 입력 의미를 서버가 완전히 검증하는 것은 아니며, Query는 주로 저장한 필드에 대해 생성됩니다. Query가 없다는 사실만으로 전체 입력의 완전성을 보장하지 않습니다.
-- 저장소에는 Dockerfile·Compose 구성과 CI 워크플로가 없습니다. `Docker Desktop.lnk`는 앱 실행 구성 파일이 아닙니다.
+- 저장소에는 병원별 공통 이미지를 만드는 `Dockerfile`과 초기 DB를 연결하는 `scripts/docker-entrypoint.js`가 있습니다. Docker Compose와 CI 워크플로는 아직 없습니다.
 
 ### 문서 작성 시 확인 범위
 
-2026-09-15 기준 소스·패키지 설정·잠금 파일·테스트 코드를 검토하여 작성했습니다. 당시 작업 디렉터리에 `node_modules`가 없어 앱 실행, 빌드 및 테스트의 성공 여부는 검증하지 않았습니다.
+2026-09-16 기준 소스·패키지 설정·잠금 파일·테스트 코드와 Docker 실행 구조를 검토했습니다. TypeScript 검사, Next.js production build, Docker image build, 분리 Volume 실행, 병원명·관리자 비밀번호 분리, 재시작 후 데이터 유지와 Export 응답을 검증했습니다.
+
+## 10. 병원 운영과 DB 백업·복구
+
+아래 예시는 IJH의 컨테이너 `edc-ijh`와 Volume `ijh-edc-data`를 기준으로 합니다. EWH와 SCH는 각각 `edc-ewh`/`ewh-edc-data`, `edc-sch`/`sch-edc-data`로 바꿉니다.
+
+### 상태와 로그 확인
+
+```powershell
+# 실행 중인 컨테이너
+docker ps
+
+# 중지된 컨테이너까지 포함
+docker ps -a
+
+# EDC 이미지 확인
+docker image inspect edc-app:latest
+
+# Volume 목록과 특정 Volume의 연결 위치 확인
+docker volume ls
+docker volume inspect ijh-edc-data
+
+# 최근 로그와 실시간 로그
+docker logs --tail 200 edc-ijh
+docker logs --follow edc-ijh
+
+# 컨테이너 상태와 mount 확인
+docker inspect edc-ijh
+```
+
+`docker inspect` 결과에는 환경변수로 전달한 관리자 비밀번호가 포함될 수 있습니다. 화면 공유, 지원 요청, 메신저 또는 이슈에 원본 출력을 붙이지 않습니다.
+
+### 정상 중지와 재시작
+
+```powershell
+# 정상 중지
+docker stop edc-ijh
+
+# 기존 컨테이너 다시 시작
+docker start edc-ijh
+
+# 실행 중인 컨테이너 정상 재시작
+docker restart edc-ijh
+
+# 재시작 후 상태와 로그 확인
+docker ps --filter "name=edc-ijh"
+docker logs --tail 100 edc-ijh
+```
+
+강제 종료인 `docker kill`은 정상 운영 절차로 사용하지 않습니다. PC나 Docker를 종료하기 전에는 가능하면 `docker stop`으로 EDC 컨테이너를 먼저 중지합니다.
+
+### 안전한 SQLite 백업
+
+SQLite는 WAL 모드이므로 실행 중인 Volume에서 `edc.sqlite` 하나만 복사하면 최근 변경이 `edc.sqlite-wal`에 남아 누락될 수 있습니다. 아래 절차는 컨테이너를 먼저 중지하고 `better-sqlite3`의 backup API로 WAL 내용을 포함한 일관된 단일 SQLite 백업 파일을 만듭니다. 기존 Volume과 원본 DB는 변경하거나 삭제하지 않습니다.
+
+```powershell
+$container = 'edc-ijh'
+$volume = 'ijh-edc-data'
+$backupDir = (New-Item -ItemType Directory -Force (Join-Path $PWD 'backups')).FullName
+$backupFile = "ijh-edc-$(Get-Date -Format 'yyyyMMdd-HHmmss').sqlite"
+
+docker stop $container
+
+try {
+  docker run --rm `
+    --mount "source=$volume,target=/data,readonly" `
+    --mount "type=bind,source=$backupDir,target=/backup" `
+    --entrypoint node `
+    edc-app:latest `
+    -e "const Database=require('better-sqlite3');const source=new Database('/data/edc.sqlite',{readonly:true});source.backup('/backup/$backupFile').then(()=>{source.close();const backup=new Database('/backup/$backupFile');backup.pragma('journal_mode=DELETE');backup.close()}).catch(error=>{console.error(error);process.exit(1)})"
+}
+finally {
+  docker start $container
+}
+
+Get-Item (Join-Path $backupDir $backupFile)
+```
+
+백업 직후 무결성을 확인합니다.
+
+```powershell
+docker run --rm `
+  --mount "type=bind,source=$backupDir,target=/backup,readonly" `
+  --entrypoint node `
+  edc-app:latest `
+  -e "const Database=require('better-sqlite3');const db=new Database('/backup/$backupFile',{readonly:true});console.log(db.pragma('integrity_check'));db.close()"
+```
+
+출력이 `[ { integrity_check: 'ok' } ]`인지 확인합니다. 백업 파일은 병원 정책에 맞는 암호화 저장소에 보관하고 파일명, 병원, 생성일, 담당자를 별도로 기록합니다. 백업 폴더와 실제 DB 파일을 Git에 추가하지 않습니다.
+
+### 안전한 복구와 검증
+
+기존 운영 Volume에 바로 덮어쓰지 않습니다. 백업을 새 복구 검증 Volume에 넣고 별도 컨테이너·포트로 먼저 확인합니다.
+
+```powershell
+$backupDir = (Resolve-Path (Join-Path $PWD 'backups')).Path
+$backupFile = 'ijh-edc-YYYYMMDD-HHmmss.sqlite'
+$restoreVolume = 'ijh-edc-data-restore-check'
+
+docker volume create $restoreVolume
+
+docker run --rm `
+  --mount "source=$restoreVolume,target=/data" `
+  --mount "type=bind,source=$backupDir,target=/backup,readonly" `
+  --entrypoint node `
+  edc-app:latest `
+  -e "require('fs').copyFileSync('/backup/$backupFile','/data/edc.sqlite')"
+
+docker run -d `
+  --name edc-ijh-restore-check `
+  -p 3104:3000 `
+  -e 'EDC_SITE=IJH · 복구 검증' `
+  -e 'ADMIN_PASSWORD=복구검증용비밀번호를입력' `
+  -v "${restoreVolume}:/app/data" `
+  edc-app:latest
+```
+
+`http://localhost:3104`에서 병원명, 대상자 수, 최근 입력, Query와 Export를 확인합니다. 복구 검증이 끝나도 원본 운영 Volume을 삭제하지 않습니다. 실제 전환은 병원 책임자가 원본 Volume 백업과 검증 결과를 확인한 후, 운영 컨테이너에 검증된 복구 Volume을 연결하는 별도 작업으로 수행합니다. 동일 Volume을 두 컨테이너에서 동시에 실행하지 않습니다.
+
+### 장애 발생 시 확인 순서
+
+```powershell
+docker ps -a
+docker logs --tail 200 edc-ijh
+docker inspect edc-ijh
+docker volume inspect ijh-edc-data
+docker image inspect edc-app:latest
+docker system df
+```
+
+1. 컨테이너 상태가 `Up`인지 확인합니다.
+2. 로그에서 포트 충돌, `ADMIN_PASSWORD`/`EDC_SITE` 누락, DB 권한, `SQLITE_BUSY` 또는 migration 오류를 확인합니다.
+3. `docker inspect`의 mount가 정확히 `ijh-edc-data`에서 `/app/data`로 연결되는지 확인합니다.
+4. 같은 Volume을 사용하는 다른 EDC 컨테이너가 실행 중이지 않은지 확인합니다.
+5. 디스크 여유 공간을 확인합니다.
+6. 재시작 전 현재 Volume의 백업 가능 여부를 확인합니다.
+7. 문제가 해결되지 않으면 로그에서 실제 비밀번호와 대상자 정보를 제거한 뒤 개발 담당자에게 전달합니다.
+
+Volume 삭제, `docker system prune --volumes`, DB 파일 직접 삭제, 빈 Volume으로 임의 교체는 장애 대응 명령으로 사용하지 않습니다.
+
+## 11. 병원 전달 파일
+
+### 병원 PC에서 이미지를 직접 빌드하는 경우 필요한 파일
+
+- 애플리케이션 소스인 `app/`, `components/`, `lib/`, `public/`, `scripts/`
+- `Dockerfile`, `.dockerignore`
+- `package.json`, `package-lock.json`
+- Next.js·TypeScript·PostCSS 설정 파일
+- 빈 병원 DB 템플릿 `data/edc-hospital-template.sqlite`
+- 배포와 운영 절차가 있는 `README.md`
+
+### 완성된 이미지를 전달하는 경우 필요한 파일
+
+- `edc-app:latest`를 저장한 image archive
+- `README.md` 또는 병원용 운영 절차서
+- 병원별 `EDC_SITE`, Volume 이름과 Port 정보
+- Git과 별도로 안전하게 전달하는 병원별 관리자 비밀번호
+
+이미지는 다음과 같이 파일로 저장하고 병원 PC에서 불러올 수 있습니다.
+
+```powershell
+docker save -o edc-app-latest.tar edc-app:latest
+docker load -i .\edc-app-latest.tar
+```
+
+### 병원 전달에서 제외할 파일
+
+- 개발 DB `data/edc.sqlite`와 `-wal`, `-shm`, backup 파일
+- 기존 병원 또는 검증용 Docker Volume의 DB
+- 실제 관리자 비밀번호가 적힌 `.env`, 메모, 로그 또는 명령 기록
+- `node_modules`, `.next`, 개발 로그, Docker build 로그
+- 테스트 Export 파일과 임시 검증 파일
+- `.git` 이력과 개발용 IDE 설정
+
+완성된 image archive 방식으로 전달하면 소스 코드, Excel 원본, 테스트 스크립트와 개발 도구는 병원 런타임에 필요하지 않습니다. 연구 문서 보관 정책상 authoritative Excel이 필요하면 실행 파일과 분리된 문서 패키지로 전달합니다.
+
+## 12. 실제 병원 배포 체크리스트
+
+- [ ] 병원 PC 또는 서버에 Docker Desktop/Docker Engine을 설치했다.
+- [ ] `edc-app:latest` 이미지를 빌드하거나 image archive에서 불러왔다.
+- [ ] `docker image inspect edc-app:latest`가 성공한다.
+- [ ] 병원 전용 Docker Volume을 생성했다.
+- [ ] 다른 병원의 Volume을 연결하지 않았음을 확인했다.
+- [ ] `EDC_SITE`를 해당 병원명으로 설정했다.
+- [ ] 실제 `ADMIN_PASSWORD`를 Git·README에 기록하지 않고 안전하게 전달받았다.
+- [ ] 사용할 Host Port가 다른 프로그램이나 컨테이너와 충돌하지 않는다.
+- [ ] README의 병원별 `docker run` 명령으로 컨테이너를 실행했다.
+- [ ] `docker ps`에서 컨테이너 상태가 `Up`이다.
+- [ ] 브라우저에서 지정한 `http://localhost:<PORT>`에 접속된다.
+- [ ] Sidebar와 Help에 올바른 병원명이 표시된다.
+- [ ] Rule Master와 Audit Trail에서 올바른 관리자 비밀번호만 승인된다.
+- [ ] 잘못된 관리자 비밀번호가 거절된다.
+- [ ] 신규 Subject를 등록할 수 있다.
+- [ ] 입력값 저장 후 새로고침해도 값이 유지된다.
+- [ ] Query 생성·표시·해결 흐름이 정상이다.
+- [ ] Excel Export가 다운로드되고 Variable Dictionary가 71개이다.
+- [ ] `docker restart` 후 Subject와 입력값이 유지된다.
+- [ ] 다른 병원 Volume에 해당 병원 데이터가 나타나지 않는다.
+- [ ] SQLite 백업을 생성하고 `integrity_check` 결과가 `ok`이다.
+- [ ] 새 복구 검증 Volume에서 백업 DB를 열어 대상자·Query·Export를 확인했다.
+- [ ] 백업 보관 위치, 주기, 담당자와 복구 승인 절차를 기록했다.

@@ -32,53 +32,62 @@ export type VariableDefinition = {
   displayOrder: number
 }
 
-const databaseDirectory = process.env.EDC_DATA_DIR || path.join(process.cwd(), 'data')
-fs.mkdirSync(databaseDirectory, { recursive: true })
-const database = new Database(path.join(databaseDirectory, 'edc.sqlite'), { timeout: 10000 })
-database.pragma('busy_timeout = 10000')
-database.pragma('journal_mode = WAL')
+let database: Database.Database | null = null
 
-database.exec(`
+function initializeDatabase() {
+  const databaseDirectory = process.env.EDC_DATA_DIR || path.join(process.cwd(), 'data')
+  fs.mkdirSync(databaseDirectory, { recursive: true })
+  const connection = new Database(path.join(databaseDirectory, 'edc.sqlite'), { timeout: 10000 })
+  connection.pragma('busy_timeout = 10000')
+  connection.pragma('journal_mode = WAL')
+
+  connection.exec(`
   CREATE TABLE IF NOT EXISTS export_history (id INTEGER PRIMARY KEY AUTOINCREMENT, exported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, user_name TEXT NOT NULL, subject_id TEXT, visit TEXT, file_name TEXT NOT NULL, export_type TEXT NOT NULL DEFAULT 'XLSX', status TEXT NOT NULL DEFAULT 'Completed');
   CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL, display_name TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'DATA_ENTRY', enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
   CREATE TABLE IF NOT EXISTS subjects (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
   CREATE TABLE IF NOT EXISTS visits (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id INTEGER NOT NULL REFERENCES subjects(id), timepoint TEXT NOT NULL, visit_date TEXT, UNIQUE(subject_id, timepoint));
   CREATE TABLE IF NOT EXISTS variable_definitions (id INTEGER PRIMARY KEY AUTOINCREMENT, variable_key TEXT UNIQUE NOT NULL, label TEXT NOT NULL, section TEXT NOT NULL, data_type TEXT NOT NULL, unit_or_format TEXT DEFAULT '', category_options TEXT DEFAULT '', min_value REAL, max_value REAL, na_rule_raw TEXT DEFAULT '', parents TEXT DEFAULT '', active_values TEXT DEFAULT '', allow_blank INTEGER NOT NULL DEFAULT 0, allow_unknown_99 INTEGER NOT NULL DEFAULT 0, group_name TEXT DEFAULT '', group_type TEXT DEFAULT '', group_parent TEXT DEFAULT '', group_active_value TEXT DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, timepoint_t1 INTEGER NOT NULL DEFAULT 1, timepoint_t2 INTEGER NOT NULL DEFAULT 1, timepoint_t3 INTEGER NOT NULL DEFAULT 1, emr_location TEXT DEFAULT '', input_guide TEXT DEFAULT '', display_order INTEGER NOT NULL DEFAULT 0);
-  CREATE TABLE IF NOT EXISTS clinical_values (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id INTEGER NOT NULL REFERENCES subjects(id), visit_id INTEGER NOT NULL REFERENCES visits(id), variable_key TEXT NOT NULL REFERENCES variable_definitions(variable_key), value TEXT, modified_by TEXT, modified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(visit_id, variable_key));
+  CREATE TABLE IF NOT EXISTS clinical_values (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id INTEGER NOT NULL REFERENCES subjects(id), visit_id INTEGER NOT NULL REFERENCES visits(id), variable_key TEXT NOT NULL REFERENCES variable_definitions(variable_key), value TEXT, missing_reason TEXT, modified_by TEXT, modified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(visit_id, variable_key));
   CREATE TABLE IF NOT EXISTS queries (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT NOT NULL, visit_id INTEGER, timepoint TEXT NOT NULL, variable_key TEXT NOT NULL, query_type TEXT NOT NULL, message TEXT NOT NULL, current_value TEXT, status TEXT NOT NULL DEFAULT 'OPEN', detected_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, resolved_at TEXT, UNIQUE(subject_id, timepoint, variable_key, query_type));
   CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, subject_id TEXT, timepoint TEXT, variable_key TEXT, previous_value TEXT, new_value TEXT, modified_by TEXT, modified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, action TEXT NOT NULL DEFAULT 'VALUE_CHANGE');
   CREATE TABLE IF NOT EXISTS hospital_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-`)
+  `)
 
-// Additive migration keeps existing values and old API clients compatible.
-const valueColumns = database.prepare('PRAGMA table_info(clinical_values)').all() as { name: string }[]
-if (!valueColumns.some((column) => column.name === 'missing_reason')) database.exec('ALTER TABLE clinical_values ADD COLUMN missing_reason TEXT')
+  // Additive migration keeps existing values and old API clients compatible.
+  const valueColumns = connection.prepare('PRAGMA table_info(clinical_values)').all() as { name: string }[]
+  if (!valueColumns.some((column) => column.name === 'missing_reason')) connection.exec('ALTER TABLE clinical_values ADD COLUMN missing_reason TEXT')
 
-migrateStudySchema(database)
-migrateSmokingRule(database)
-// Existing subjects receive the same generated, immutable ID value as newly
-// registered subjects without replacing any previously stored value.
-database.exec(`
+  migrateStudySchema(connection)
+  migrateSmokingRule(connection)
+  // Existing subjects receive the same generated, immutable ID value as newly
+  // registered subjects without replacing any previously stored value.
+  connection.exec(`
   INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at)
   SELECT s.id,v.id,'id',s.subject_id,'system',CURRENT_TIMESTAMP
   FROM subjects s JOIN visits v ON v.subject_id=s.id AND v.timepoint='T1'
   WHERE EXISTS (SELECT 1 FROM variable_definitions d WHERE d.variable_key='id' AND d.study_active=1)
   ON CONFLICT(visit_id,variable_key) DO NOTHING;
-`)
-const queryColumns = database.prepare('PRAGMA table_info(queries)').all() as { name: string }[]
-if (!queryColumns.some((column) => column.name === 'updated_at')) database.exec('ALTER TABLE queries ADD COLUMN updated_at TEXT')
-database.exec(`
+  `)
+  const queryColumns = connection.prepare('PRAGMA table_info(queries)').all() as { name: string }[]
+  if (!queryColumns.some((column) => column.name === 'updated_at')) connection.exec('ALTER TABLE queries ADD COLUMN updated_at TEXT')
+  connection.exec(`
   INSERT INTO queries(subject_id,visit_id,timepoint,variable_key,query_type,message,current_value,detected_at,updated_at)
   SELECT s.subject_id,v.id,v.timepoint,'vdt','MISSING','방문일을 입력해 주세요.','',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
   FROM subjects s JOIN visits v ON v.subject_id=s.id
   JOIN variable_definitions d ON d.variable_key='vdt' AND d.study_active=1 AND d.enabled=1 AND d.allow_blank=0
   WHERE COALESCE(v.visit_date,'')=''
   ON CONFLICT(subject_id,timepoint,variable_key,query_type) DO NOTHING;
-`)
+  `)
+  return connection
+}
 
-export function db() { return database }
+export function db() {
+  database ??= initializeDatabase()
+  return database
+}
 
 export function ensureSubject(subjectId: string) {
+  const database = db()
   const normalized = subjectId.trim()
   if (!normalized) throw new Error('Subject ID is required')
   const subject = database.prepare('INSERT INTO subjects (subject_id,created_at,updated_at) VALUES (?,?,?) ON CONFLICT(subject_id) DO UPDATE SET subject_id=excluded.subject_id RETURNING id, subject_id').get(normalized, getCurrentTimestamp(), getCurrentTimestamp()) as { id: number; subject_id: string }
@@ -92,6 +101,7 @@ export function ensureSubject(subjectId: string) {
 }
 
 export function createSubject(subjectId: string) {
+  const database = db()
   const normalized = subjectId.trim()
   if (!normalized) throw new Error('Subject ID is required')
   try {

@@ -20,7 +20,8 @@ async function main() {
   const source = readSource()
   const schema = require('../lib/study-variables.json')
   const legacy = new Database(path.join(directory, 'edc.sqlite'))
-  legacy.exec(fs.readFileSync(path.join(root, 'lib/db/index.ts'), 'utf8').match(/database.exec\(`([\s\S]*?)`\)/)[1])
+  const currentSchema = fs.readFileSync(path.join(root, 'lib/db/index.ts'), 'utf8').match(/connection\.exec\(`([\s\S]*?)`\)/)[1]
+  legacy.exec(currentSchema.replace(', missing_reason TEXT', ''))
   legacy.exec('ALTER TABLE clinical_values ADD COLUMN missing_reason TEXT')
   const insert = legacy.prepare('INSERT INTO variable_definitions(variable_key,label,section,data_type) VALUES(?,?,?,?)')
   for (const row of schema) insert.run(row.variableKey === 'pad' ? 'pvd' : row.variableKey === 'amp' ? 'amp_lt' : row.variableKey === 'amp_dt' ? 'ampdt_lt' : row.variableKey, 'Old label', row.section, row.dataType)
@@ -105,6 +106,7 @@ async function main() {
   assert.equal((await patch(new Request('http://localhost', { method: 'PATCH', body: JSON.stringify({ timepointT2: true }) }), ruleContext)).status, 409)
   assert.equal((await variablesApi.POST()).status, 409)
   db().close()
-  console.log('PASS: source/schema/API/dictionary=71; metadata exact; migration preserves values, archives obsolete definitions and retains audit; all 16 T1-only restrictions; query navigation references; Rule Master validation edits; 2-sheet export; idempotency')
+  const t1OnlyCount = source.filter((row) => row.timepointT1 && !row.timepointT2 && !row.timepointT3).length
+  console.log(`PASS: source/schema/API/dictionary=71; metadata exact; migration preserves values, archives obsolete definitions and retains audit; all ${t1OnlyCount} T1-only restrictions; query navigation references; Rule Master validation edits; 2-sheet export; idempotency`)
 }
 main().catch((error) => { console.error(error); process.exitCode = 1 })

@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+.gitignore
+Dockerfile
+*.log
+npm-debug.log*
+data/edc.sqlite
+data/edc.sqlite.backup
+data/edc.sqlite-shm
+data/edc.sqlite-wal
+data/verification.xlsx
+data/schema-backups/

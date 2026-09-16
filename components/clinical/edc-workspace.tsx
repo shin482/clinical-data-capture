@@ -131,6 +131,7 @@ function ruleFromApi(rule: any): Rule {
 
 export default function EdcWorkspace() {
   const [helpOpen, setHelpOpen] = useState(false)
+  const [runtimeConfig, setRuntimeConfig] = useState(appConfig)
   const router = useRouter()
   const pathname = usePathname()
   const params = useParams<{ subjectId?: string }>()
@@ -317,6 +318,8 @@ export default function EdcWorkspace() {
   useEffect(() => {
     ;(async () => {
       try {
+        const config = await fetch('/api/config')
+        if (config.ok) setRuntimeConfig(await config.json())
         const health = await fetch('/api/health')
         const healthData = await health.json()
         setDatabaseConnected(Boolean(healthData.connected))
@@ -403,7 +406,7 @@ export default function EdcWorkspace() {
           <img className="brand-logo" src="/rexsoft-logo.png" alt="Rexsoft" />
           <div>
             <strong>ELECTRONIC<br />DATA CAPTURE</strong>
-            <span>LOCAL EDC · {appConfig.version}</span>
+            <span>LOCAL EDC · {runtimeConfig.version}</span>
           </div>
         </button>
 
@@ -411,7 +414,7 @@ export default function EdcWorkspace() {
           <span className="site-dot" />
           <div>
             <span className="eyebrow">CURRENT SITE</span>
-            <strong>{appConfig.site}</strong>
+            <strong>{runtimeConfig.site}</strong>
           </div>
         </div>
 
@@ -472,7 +475,7 @@ export default function EdcWorkspace() {
         </header>
 
         {content}
-        {helpOpen && <HelpModal onClose={() => setHelpOpen(false)} />}
+        {helpOpen && <HelpModal version={runtimeConfig.version} site={runtimeConfig.site} onClose={() => setHelpOpen(false)} />}
         {adminTarget && <AdminAccessModal target={adminTarget} onCancel={() => { setAdminTarget(null); if (isProtectedPage(active) && !pageAccess[active]) setActive('Dashboard') }} onSuccess={() => {
           try { sessionStorage.setItem(pageSessionKeys[adminTarget], JSON.stringify({ authenticatedAt: Date.now() })) } catch {}
           setPageAccess((current) => ({ ...current, [adminTarget]: true })); setActive(adminTarget); setAdminTarget(null)

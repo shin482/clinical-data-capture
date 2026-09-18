@@ -57,6 +57,8 @@ button { cursor: pointer; }
 .subject-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .subject-delete-btn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #b44a4a; padding: 5px 7px; font-size: 10px; cursor: pointer; }
 .subject-delete-btn:hover { background: #fff0f0; }
+.subject-edit-btn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #087f83; padding: 5px 7px; font-size: 10px; cursor: pointer; }
+.subject-edit-btn:hover { background: #eaf7f7; }
 .delete-warning { margin: -10; margin-bottom: 10; padding: 0 20px 18px; color: #6e4a4a; font-size: 12px; line-height: 1.6; }
 .subject-delete-close { width: 32px; height: 32px; border-radius: 4px; padding: 0; font-size: 22px; font-weight: 400; line-height: 1; cursor: pointer; transition: background-color .15s ease, color .15s ease; }
 .subject-delete-close:hover { background: #eef3f4; color: #526b76; }
@@ -65,6 +67,7 @@ button { cursor: pointer; }
 .crf-display-options { display: flex; align-items: center; justify-content: flex-start; gap: 8px; margin-bottom: 12px; }
 .emr-reference { white-space: normal; overflow-wrap: anywhere; }
 .site-switcher { display: flex; align-items: center; gap: 9px; padding: 11px 10px; margin-bottom: 24px; border: 1px solid #2d4a58; border-radius: 5px; background: #173747; }
+.guideline-nav { margin: 0 0 18px; }
 .site-switcher > div { flex: 1; }.site-switcher strong { display: block; margin-top: 3px; font-size: 11px; color: white; }.site-dot, .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #50c3a1; box-shadow: 0 0 0 3px #50c3a122; }
 .eyebrow, .nav-label { color: #7c929d; font-family: var(--font-geist-mono); font-size: 9px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; }.nav-label { padding: 0 10px 8px; }.admin-label { margin-top: 25px; }
 .nav-item { display: flex; align-items: center; width: 100%; gap: 11px; border: 0; border-radius: 4px; background: transparent; color: #a9bec7; padding: 10px; text-align: left; }.nav-item:hover, .nav-item.active { background: #1e4657; color: white; }.nav-item.active { box-shadow: inset 3px 0 #52b9b4; }.nav-item span { flex: 1; font-size: 12px; }.nav-item b { display: grid; place-items: center; width: 19px; height: 19px; border-radius: 10px; background: #b66a3b; color: white; font-size: 10px; }

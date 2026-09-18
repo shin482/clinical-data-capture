@@ -61,18 +61,18 @@ pnpm dev --hostname 127.0.0.1 --port 3001
 
 ### 환경 변수
 
-관리자 화면을 사용하려면 `ADMIN_PASSWORD`가 필요합니다. 병원 Docker 배포에서는 `ADMIN_PASSWORD`와 `EDC_SITE`를 모두 명시합니다. 로컬 개발에서 필요하면 루트에 `.env.local`을 생성합니다.
+관리자 화면은 `EDC_SITE`에 맞는 서버 측 비밀번호를 사용합니다. 필요하면 `ADMIN_PASSWORD_IJH`, `ADMIN_PASSWORD_EWH`, `ADMIN_PASSWORD_SCH`로 병원별 값을 재정의할 수 있습니다.
 
 ```dotenv
 EDC_DATA_DIR=./data
-ADMIN_PASSWORD=replace-with-your-local-password
+ADMIN_PASSWORD_EWH=replace-with-your-local-password
 EDC_SITE=EWH · 이화의료원
 ```
 
 | 변수 | 기본값 | 역할 |
 | --- | --- | --- |
 | `EDC_DATA_DIR` | 실행 디렉터리의 `data` | `edc.sqlite` 저장 디렉터리 |
-| `ADMIN_PASSWORD` | 없음 | Rule Master·Audit Trail 화면 진입 시 확인하는 병원별 비밀번호 |
+| `ADMIN_PASSWORD_<SITE>` | 서버 측 site 기본값 | Rule Master·Audit Trail 화면 진입 시 확인하는 병원별 비밀번호 재정의 |
 | `EDC_SITE` | `EWH · 이화의료원` | Sidebar와 Help에 표시하는 병원명 |
 
 `.env.local`은 Git에서 제외됩니다. 직접 `node scripts/...`로 실행하는 스크립트는 Next.js의 환경 파일 로더를 사용하지 않으므로, 데이터 경로를 바꾸려면 셸 환경 변수로 전달해야 합니다.
@@ -96,7 +96,7 @@ pnpm start --hostname 127.0.0.1
 
 이 절은 소스 코드를 직접 빌드하지 않고 전달받은 Docker image archive를 Windows PC의 Docker Desktop에서 실행하는 병원 담당자용 설치 안내입니다. Docker Desktop은 EDC 서버를 격리된 **컨테이너**로 실행하고, 임상 데이터는 컨테이너 밖의 **Docker Volume**에 보존합니다. 컨테이너를 중지하거나 다시 시작해도 같은 Volume을 연결하면 데이터가 유지됩니다.
 
-하나의 `edc-app:latest` 이미지를 모든 병원에서 공통으로 사용합니다. 병원별로 `EDC_SITE`, `ADMIN_PASSWORD`, Docker Volume과 호스트 Port만 다르게 지정합니다. `/app/data`에는 반드시 병원별로 서로 다른 Volume을 연결합니다.
+하나의 `edc-app:latest` 이미지를 모든 병원에서 공통으로 사용합니다. 병원별로 `EDC_SITE`, Docker Volume과 호스트 Port를 다르게 지정합니다. `/app/data`에는 반드시 병원별로 서로 다른 Volume을 연결합니다.
 
 #### 1단계: 전달 파일과 설정값 준비
 
@@ -187,7 +187,6 @@ docker run -d `
   --restart unless-stopped `
   -p 3004:3000 `
   -e 'EDC_SITE=IJH · 인제대학교 일산백병원' `
-  -e 'ADMIN_PASSWORD=병원전용비밀번호를입력' `
   -v "ijh-edc-data:/app/data" `
   edc-app:latest
 ```
@@ -202,7 +201,6 @@ docker run -d `
   --restart unless-stopped `
   -p 3005:3000 `
   -e 'EDC_SITE=EWH · 이화의료원' `
-  -e 'ADMIN_PASSWORD=병원전용비밀번호를입력' `
   -v "ewh-edc-data:/app/data" `
   edc-app:latest
 ```
@@ -217,7 +215,6 @@ docker run -d `
   --restart unless-stopped `
   -p 3006:3000 `
   -e 'EDC_SITE=SCH · 순천향대학교 서울병원' `
-  -e 'ADMIN_PASSWORD=병원전용비밀번호를입력' `
   -v "sch-edc-data:/app/data" `
   edc-app:latest
 ```
@@ -369,7 +366,7 @@ pnpm exec tsc --noEmit
 | `test-crf.cjs` | 필드 저장·오류·결측·Query 해결, 진행률, 화면 접근 만료, 감사 기록, 내보내기 |
 | `test-search-ui.cjs` | 최근 검색어·삭제·중복 제거, 변수 표시명, 그룹 정렬, 상태 표시 |
 
-DB 통합 테스트 3개는 시스템 임시 디렉터리에 독립 DB를 생성하고 `EDC_DATA_DIR`를 해당 위치로 바꿉니다. 프로젝트 임상 DB는 사용하지 않으며 임시 DB는 자동 삭제하지 않습니다. `test-crf.cjs`의 관리자 인증 검사를 실행할 때는 테스트 셸에 `$env:ADMIN_PASSWORD = '123456'`을 지정합니다.
+DB 통합 테스트는 시스템 임시 디렉터리에 독립 DB를 생성하고 `EDC_DATA_DIR`를 해당 위치로 바꿉니다. 프로젝트 임상 DB는 사용하지 않으며 임시 DB는 자동 삭제하지 않습니다.
 
 테스트는 서버를 띄우지 않고 API 함수를 직접 호출합니다. `test-search-ui.cjs`도 브라우저 자동화 테스트가 아닌 보조 함수 검사입니다. 실제 화면 레이아웃·클릭·자동 저장 전환은 별도로 확인해야 합니다.
 
@@ -419,8 +416,8 @@ DFU-DC_e-CRF_PartB_IJH.xlsx     # 연구 변수 기준 파일
 
 ## 9. 현재 개발상 한계
 
-- **인증은 화면 접근 확인 수준입니다.** Rule Master와 Audit Trail은 각각 `sessionStorage`에 저장한 인증 시각을 기준으로 30분간 접근을 허용합니다. 서버 세션·API 권한 검사는 구현되어 있지 않으므로 `ADMIN_PASSWORD` 설정만으로 API가 보호되지는 않습니다.
-- 내보내기 작성자는 `Minji Jung`으로 고정되어 있고, 필드 수정자는 요청의 `modifiedBy` 또는 `local-user`입니다. 실제 사용자 인증과 연결된 감사 체계가 아닙니다.
+- **인증은 화면 접근 확인 수준입니다.** Rule Master와 Audit Trail은 각각 `sessionStorage`에 저장한 인증 시각을 기준으로 30분간 접근을 허용합니다. 서버 세션·API 권한 검사는 구현되어 있지 않습니다.
+- 내보내기 작성자와 파일명에는 현재 `EDC_SITE`의 병원 코드가 사용됩니다. 필드 수정자는 요청의 `modifiedBy` 또는 `local-user`입니다.
 - 사용자 관리, 설정·백업 UI, EMR 연동은 구현되어 있지 않습니다. 코드의 일부 EMR 참조 및 방문 표시값은 예시입니다.
 - 화면의 `Local only` 문구는 네트워크 접근을 제한하는 기능이 아닙니다. 위 실행 예시는 개발 서버를 `127.0.0.1`에 바인딩합니다. 데이터는 브라우저 장치가 아닌 **앱 서버 장치**에 저장됩니다.
 - 날짜 등 모든 입력 의미를 서버가 완전히 검증하는 것은 아니며, Query는 주로 저장한 필드에 대해 생성됩니다. Query가 없다는 사실만으로 전체 입력의 완전성을 보장하지 않습니다.
@@ -553,7 +550,6 @@ docker run -d `
   --name edc-ijh-restore-check `
   -p 3104:3000 `
   -e 'EDC_SITE=IJH · 복구 검증' `
-  -e 'ADMIN_PASSWORD=복구검증용비밀번호를입력' `
   -v "${restoreVolume}:/app/data" `
   edc-app:latest
 ```
@@ -572,7 +568,7 @@ docker system df
 ```
 
 1. 컨테이너 상태가 `Up`인지 확인합니다.
-2. 로그에서 포트 충돌, `ADMIN_PASSWORD`/`EDC_SITE` 누락, DB 권한, `SQLITE_BUSY` 또는 migration 오류를 확인합니다.
+2. 로그에서 포트 충돌, `EDC_SITE` 누락, DB 권한, `SQLITE_BUSY` 또는 migration 오류를 확인합니다.
 3. `docker inspect`의 mount가 정확히 `ijh-edc-data`에서 `/app/data`로 연결되는지 확인합니다.
 4. 같은 Volume을 사용하는 다른 EDC 컨테이너가 실행 중이지 않은지 확인합니다.
 5. 디스크 여유 공간을 확인합니다.
@@ -640,7 +636,6 @@ docker load -i .\edc-app-latest.tar
 - [ ] 병원 전용 Docker Volume을 생성했다.
 - [ ] 다른 병원의 Volume을 연결하지 않았음을 확인했다.
 - [ ] `EDC_SITE`를 해당 병원명으로 설정했다.
-- [ ] 실제 `ADMIN_PASSWORD`를 Git·README에 기록하지 않고 안전하게 전달받았다.
 - [ ] 사용할 Host Port가 다른 프로그램이나 컨테이너와 충돌하지 않는다.
 - [ ] README의 병원별 `docker run` 명령으로 컨테이너를 실행했다.
 - [ ] `docker ps`에서 컨테이너 상태가 `Up`이다.

@@ -8,7 +8,7 @@ const { readRecentSearches, writeRecentSearches, updateRecentSearches } = requir
 const { variableDisplay, orderedGroups } = require('../lib/variable-display.ts')
 const { normalizeQueryStatus, getSubjectQueryStatus, emrReferences } = require('../lib/clinical-utils.ts')
 const { queryHistoryForm, removedQueryHistoryForms } = require('../lib/query-history.ts')
-assert.deepEqual(emrReferences({ emrLocation: '초기 간호 기록지\r\n\r\n 외래 초진 기록 \n입원 초진 기록' }), ['초기 간호 기록지', '외래 초진 기록', '입원 초진 기록'])
+assert.deepEqual(emrReferences({ emrLocation: '초기 간호 기록지\r\n\r\n 외래 초진 기록 \n입원 초진 기록' }), ['초기 간호 기록지', '외래 초진기록', '입원 초진기록'])
 assert.equal(normalizeQueryStatus('ARCHIVED'), 'RESOLVED')
 assert.equal(normalizeQueryStatus('RESOLVED'), 'RESOLVED')
 assert.equal(normalizeQueryStatus('OPEN'), 'OPEN')

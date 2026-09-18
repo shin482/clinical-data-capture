@@ -17,6 +17,11 @@ __v0_jsx-dev-runtime.ts
 # Environment variables
 .env*.local
 
+# Local build, release, and database artifacts
+release/
+docker-build*.log
+data/*.backup
+
 # Common ignores
 node_modules
 .next/

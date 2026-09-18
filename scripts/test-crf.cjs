@@ -21,9 +21,9 @@ require.extensions['.ts'] = (module, filename) => {
 }
 
 async function main() {
-  const { db } = require('../lib/db/index.ts')
+  const { db, createSubject } = require('../lib/db/index.ts')
   require('../lib/db/seed.ts')
-  const { GET, POST } = require('../app/api/subjects/[subjectId]/route.ts')
+  const { GET, POST, PATCH } = require('../app/api/subjects/[subjectId]/route.ts')
   const { NextRequest } = require('next/server')
   const context = { params: Promise.resolve({ subjectId: 'CRF_TEST' }) }
   const save = (data) => POST(new NextRequest('http://localhost/api/subjects/CRF_TEST', {
@@ -51,9 +51,12 @@ async function main() {
   assert.equal(helpers.getSubjectQueryStatus([]), 'RESOLVED')
   assert.equal(helpers.getSubjectQueryStatus([{ status: 'RESOLVED' }]), 'RESOLVED')
   const auth = require('../app/api/admin/auth/route.ts').POST
-  for (const [password, expected] of [['incorrect', 401], ['123456', 200]]) {
-    assert.equal((await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password }) }))).status, expected)
+  for (const [site, password] of [['IJH', '202509021'], ['EWH', '202601040'], ['SCH', '202509006']]) {
+    process.env.EDC_SITE = site
+    assert.equal((await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password }) }))).status, 200)
+    assert.equal((await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password: 'incorrect' }) }))).status, 401)
   }
+  process.env.EDC_SITE = 'IJH'
   assert.equal((await (await require('../app/api/admin/status/route.ts').GET()).json()).isAdmin, false)
   const exportApi = require('../app/api/export/route.ts').GET
   const scoped = await exportApi(new NextRequest('http://localhost/api/export?subject=CRF_TEST&visit=T1'))
@@ -137,7 +140,7 @@ async function main() {
   assert.equal(db().prepare("SELECT timepoint_t2 FROM variable_definitions WHERE variable_key='occl_no'").get().timepoint_t2, 0)
   const auditWithoutUser = await auditApi(new NextRequest('http://localhost/api/audit?subjectId=CRF_TEST&visit=T1&action=EXPORT&user=does-not-exist')).json()
   assert.equal(auditWithoutUser.length, 1)
-  assert.equal(auditWithoutUser[0].modified_by, 'Minji Jung')
+  assert.equal(auditWithoutUser[0].modified_by, 'IJH')
   console.log('PASS: partial subject progress, zero/false values, visit-specific denominator, T1-only API restriction, metadata edit preservation, user filter removal')
   const emptySummary = getDataEntrySummary([])
   assert.equal(emptySummary.complete + emptySummary.incomplete, 0)
@@ -255,8 +258,24 @@ async function main() {
   }
   const latestExport = await (await exportApi(new NextRequest('http://localhost/api/export?history=1'))).json()
   assert.equal(latestExport[0].export_type, 'XLSX + Queries')
+  assert.equal(latestExport[0].user_name, 'IJH')
+  assert.match(latestExport[0].file_name, /^IJH_\d{8}\.xlsx$/)
   const off = await exportApi(new NextRequest('http://localhost/api/export?includeQueries=0'))
   assert.deepEqual(xlsx.read(Buffer.from(await off.arrayBuffer())).SheetNames, ['data', 'Variable Dictionary'])
+  const renamed = createSubject('RENAME_OLD')
+  const originalVisitIds = db().prepare('SELECT id FROM visits WHERE subject_id=? ORDER BY id').all(renamed.id).map((row) => row.id)
+  db().prepare("INSERT INTO audit_logs(subject_id,action) VALUES('RENAME_OLD','VALUE_CHANGE')").run()
+  db().prepare("INSERT INTO export_history(user_name,subject_id,file_name) VALUES('IJH','RENAME_OLD','before.xlsx')").run()
+  const renameResponse = await PATCH(new NextRequest('http://localhost/api/subjects/RENAME_OLD', { method: 'PATCH', body: JSON.stringify({ subjectId: 'RENAME_NEW' }) }), { params: Promise.resolve({ subjectId: 'RENAME_OLD' }) })
+  assert.equal(renameResponse.status, 200)
+  assert.deepEqual(db().prepare('SELECT id FROM visits WHERE subject_id=? ORDER BY id').all(renamed.id).map((row) => row.id), originalVisitIds)
+  assert.equal(db().prepare("SELECT value FROM clinical_values WHERE subject_id=? AND variable_key='id'").get(renamed.id).value, 'RENAME_NEW')
+  assert.equal(db().prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE subject_id='RENAME_OLD'").get().count, 0)
+  assert.ok(db().prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE subject_id='RENAME_NEW'").get().count >= 2)
+  assert.equal(db().prepare("SELECT subject_id FROM export_history WHERE file_name='before.xlsx'").get().subject_id, 'RENAME_NEW')
+  createSubject('RENAME_DUPLICATE')
+  const duplicateResponse = await PATCH(new NextRequest('http://localhost/api/subjects/RENAME_NEW', { method: 'PATCH', body: JSON.stringify({ subjectId: 'RENAME_DUPLICATE' }) }), { params: Promise.resolve({ subjectId: 'RENAME_NEW' }) })
+  assert.equal(duplicateResponse.status, 409)
   console.log('PASS: optional Queries sheet, all/subject/visit scope, normalized statuses, no Audit sheet, export history, independent TTL expiry and invalid auth rejection')
   db().close()
   console.log('PASS: category / 99, missing round-trip, conflict rejection, query resolution, range, visit date, audit, export, metadata')

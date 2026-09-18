@@ -92,3 +92,29 @@ export async function DELETE(_request: NextRequest, context: { params: Promise<{
   })()
   return NextResponse.json({ ok: true })
 }
+
+export async function PATCH(request: NextRequest, context: { params: Promise<{ subjectId: string }> }) {
+  const { subjectId } = await context.params
+  const body = await request.json().catch(() => ({}))
+  const nextSubjectId = String(body.subjectId || '').trim()
+  if (!nextSubjectId) return NextResponse.json({ error: 'Subject Number is required' }, { status: 400 })
+
+  const subject = db().prepare('SELECT id, subject_id FROM subjects WHERE subject_id=?').get(subjectId) as { id: number; subject_id: string } | undefined
+  if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
+  if (nextSubjectId !== subjectId && db().prepare('SELECT 1 FROM subjects WHERE subject_id=?').get(nextSubjectId)) {
+    return NextResponse.json({ error: '이미 등록된 Subject Number입니다.' }, { status: 409 })
+  }
+  if (nextSubjectId === subjectId) return NextResponse.json({ ok: true, subjectId })
+
+  const modifiedAt = getCurrentTimestamp()
+  db().transaction(() => {
+    db().prepare('UPDATE subjects SET subject_id=?, updated_at=? WHERE id=?').run(nextSubjectId, modifiedAt, subject.id)
+    db().prepare('UPDATE queries SET subject_id=? WHERE subject_id=?').run(nextSubjectId, subjectId)
+    db().prepare('UPDATE audit_logs SET subject_id=? WHERE subject_id=?').run(nextSubjectId, subjectId)
+    db().prepare('UPDATE export_history SET subject_id=? WHERE subject_id=?').run(nextSubjectId, subjectId)
+    db().prepare("UPDATE clinical_values SET value=?, modified_by='system', modified_at=? WHERE subject_id=? AND variable_key='id'").run(nextSubjectId, modifiedAt, subject.id)
+    db().prepare("INSERT INTO audit_logs(subject_id,timepoint,variable_key,previous_value,new_value,modified_by,modified_at,action) VALUES(?,NULL,'id',?,?, 'system',?,'UPDATE')").run(nextSubjectId, subjectId, nextSubjectId, modifiedAt)
+  })()
+
+  return NextResponse.json({ ok: true, subjectId: nextSubjectId })
+}

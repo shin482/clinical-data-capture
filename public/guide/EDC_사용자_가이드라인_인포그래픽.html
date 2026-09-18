@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EDC 사용 가이드라인 — 당뇨병족부질환 예측·관리 연구 Part B</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F1F2ED;
+    --paper-raised:#FFFFFF;
+    --ink:#1C2B39;
+    --ink-soft:#4A5A68;
+    --ink-faint:#8B96A0;
+    --line:#CDD1C8;
+    --line-strong:#1C2B39;
+    --amber:#B4802A;
+    --amber-bg:#F7EEDD;
+    --teal:#2F6E62;
+    --teal-bg:#E5EEEB;
+    --brick:#A8452F;
+    --brick-bg:#F4E4DE;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0;
+    padding:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'IBM Plex Sans KR', -apple-system, sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  h1,h2,h3{
+    font-family:'Noto Serif KR', serif;
+    margin:0;
+    letter-spacing:-0.01em;
+  }
+
+  .wrap{
+    max-width:920px;
+    margin:0 auto;
+    padding:0 32px 80px;
+  }
+
+  /* ===== Header / document band ===== */
+  .doc-header{
+    background:var(--ink);
+    color:var(--paper);
+    padding:44px 0 30px;
+    margin-bottom:6px;
+  }
+  .doc-header .wrap{ padding-top:0; padding-bottom:0; }
+  .doc-kicker{
+    font-size:13px;
+    color:#A9B7C0;
+    letter-spacing:0.02em;
+    margin-bottom:14px;
+  }
+  .doc-title{
+    font-size:34px;
+    line-height:1.28;
+    color:#F6F5F0;
+    max-width:640px;
+  }
+  .doc-title em{
+    font-style:normal;
+    color:#D7A868;
+  }
+  .doc-meta{
+    display:flex;
+    gap:28px;
+    flex-wrap:wrap;
+    margin-top:26px;
+    padding-top:20px;
+    border-top:1px solid rgba(255,255,255,0.18);
+    font-size:12.5px;
+    color:#B9C3CA;
+  }
+  .doc-meta strong{
+    display:block;
+    color:#EFEEE9;
+    font-size:13.5px;
+    font-weight:600;
+    margin-bottom:2px;
+  }
+
+  /* ===== Section scaffolding ===== */
+  section{
+    padding:46px 0 8px;
+    border-bottom:1px solid var(--line);
+  }
+  section:last-of-type{ border-bottom:none; }
+
+  .section-head{
+    display:flex;
+    align-items:baseline;
+    gap:14px;
+    margin-bottom:26px;
+  }
+  .section-num{
+    font-family:'Noto Serif KR', serif;
+    font-size:14px;
+    color:var(--ink-faint);
+    padding-top:3px;
+    white-space:nowrap;
+  }
+  .section-title{
+    font-size:23px;
+  }
+  .section-sub{
+    font-size:14.5px;
+    color:var(--ink-soft);
+    margin:-16px 0 26px;
+    max-width:560px;
+    line-height:1.6;
+  }
+
+  /* ===== 01 Flow timeline ===== */
+  .flow{
+    position:relative;
+    padding-left:34px;
+  }
+  .flow::before{
+    content:"";
+    position:absolute;
+    left:11px;
+    top:6px;
+    bottom:6px;
+    width:1px;
+    background:var(--line-strong);
+    opacity:0.25;
+  }
+  .flow-step{
+    position:relative;
+    padding:0 0 30px 22px;
+  }
+  .flow-step:last-child{ padding-bottom:0; }
+  .flow-step::before{
+    content:attr(data-n);
+    position:absolute;
+    left:-34px;
+    top:-2px;
+    width:23px;
+    height:23px;
+    border-radius:50%;
+    background:var(--paper);
+    border:1.5px solid var(--ink);
+    color:var(--ink);
+    font-family:'Noto Serif KR', serif;
+    font-size:11.5px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .flow-step h4{
+    font-family:'IBM Plex Sans KR', sans-serif;
+    font-size:16.5px;
+    font-weight:600;
+    margin:0 0 5px;
+  }
+  .flow-step p{
+    font-size:14px;
+    color:var(--ink-soft);
+    line-height:1.65;
+    margin:0;
+    max-width:600px;
+  }
+  .flow-step .tag{
+    display:inline-block;
+    font-size:11.5px;
+    color:var(--amber);
+    background:var(--amber-bg);
+    padding:2px 8px;
+    border-radius:3px;
+    margin-left:8px;
+    position:relative;
+    top:-1px;
+  }
+
+  /* ===== 02 Screens grid ===== */
+  .screen-grid{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:1px;
+    background:var(--line);
+    border:1px solid var(--line);
+  }
+  .screen-cell{
+    background:var(--paper-raised);
+    padding:20px 18px;
+    min-height:118px;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .screen-cell.admin{
+    background:repeating-linear-gradient(135deg, #FFFFFF, #FFFFFF 8px, #F6F5F1 8px, #F6F5F1 16px);
+  }
+  .screen-icon{ width:24px; height:24px; flex-shrink:0; }
+  .screen-name{ font-size:15px; font-weight:600; }
+  .screen-desc{ font-size:12.5px; color:var(--ink-soft); line-height:1.55; }
+  .screen-badge{
+    align-self:flex-start;
+    font-size:10.5px;
+    color:var(--brick);
+    background:var(--brick-bg);
+    padding:2px 7px;
+    border-radius:3px;
+  }
+  @media (max-width:640px){ .screen-grid{ grid-template-columns:repeat(2,1fr); } }
+
+  /* ===== 03 Save status chips ===== */
+  .status-row{
+    display:flex;
+    gap:14px;
+    flex-wrap:wrap;
+    margin-bottom:8px;
+  }
+  .status-card{
+    flex:1 1 260px;
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    border-left:4px solid var(--ink-faint);
+    padding:18px 20px;
+  }
+  .status-card.ok{ border-left-color:var(--teal); }
+  .status-card.busy{ border-left-color:var(--ink-faint); }
+  .status-card.fail{ border-left-color:var(--brick); }
+  .status-chip{
+    display:inline-block;
+    font-size:12.5px;
+    font-weight:600;
+    padding:3px 10px;
+    border-radius:3px;
+    margin-bottom:10px;
+  }
+  .status-card.ok .status-chip{ background:var(--teal-bg); color:var(--teal); }
+  .status-card.busy .status-chip{ background:#E7E8E3; color:var(--ink-soft); }
+  .status-card.fail .status-chip{ background:var(--brick-bg); color:var(--brick); }
+  .status-card p{ font-size:13.5px; color:var(--ink-soft); line-height:1.6; margin:0; }
+
+  /* ===== 04 Query loop diagram ===== */
+  .loop{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    flex-wrap:wrap;
+    margin-bottom:34px;
+  }
+  .loop-node{
+    background:var(--paper-raised);
+    border:1px solid var(--line);
+    padding:14px 18px;
+    font-size:13.5px;
+    font-weight:500;
+    text-align:center;
+    min-width:120px;
+  }
+  .loop-node.error{ border-color:var(--brick); color:var(--brick); background:var(--brick-bg); }
+  .loop-node.ok{ border-color:var(--teal); color:var(--teal); background:var(--teal-bg); }
+  .loop-arrow{
+    color:var(--ink-faint);
+    font-size:16px;
+    padding:0 2px;
+  }
+
+  table.qtypes{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+  }
+  table.qtypes th{
+    text-align:left;
+    font-family:'Noto Serif KR', serif;
+    font-weight:500;
+    font-size:12px;
+    color:var(--ink-faint);
+    padding:0 12px 10px 0;
+    border-bottom:1px solid var(--line-strong);
+  }
+  table.qtypes td{
+    padding:12px 12px 12px 0;
+    border-bottom:1px solid var(--line);
+    color:var(--ink-soft);
+    vertical-align:top;
+  }
+  table.qtypes td.qtype-name{
+    color:var(--ink);
+    font-weight:600;
+    white-space:nowrap;
+  }
+
+  /* ===== 05 Data types strip ===== */
+  .dtype-row{
+    display:flex;
+    gap:1px;
+    background:var(--line);
+    border:1px solid var(--line);
+    flex-wrap:wrap;
+  }
+  .dtype-cell{
+    flex:1 1 140px;
+    background:var(--paper-raised);
+    padding:14px 16px;
+  }
+  .dtype-code{
+    font-family:'IBM Plex Sans KR', monospace;
+    font-size:11px;
+    color:var(--amber);
+    display:block;
+    margin-bottom:4px;
+  }
+  .dtype-ui{ font-size:13px; font-weight:600; }
+
+  /* ===== 06 Caution list ===== */
+  .caution-list{
+    display:flex;
+    flex-direction:column;
+    gap:0;
+  }
+  .caution-item{
+    display:flex;
+    gap:18px;
+    padding:20px 0;
+    border-top:1px solid var(--line);
+  }
+  .caution-item:first-child{ border-top:none; padding-top:4px; }
+  .caution-icon{
+    width:30px;
+    height:30px;
+    flex-shrink:0;
+    color:var(--brick);
+  }
+  .caution-body h4{
+    font-size:15px;
+    font-weight:600;
+    margin:0 0 4px;
+  }
+  .caution-body p{
+    font-size:13.5px;
+    color:var(--ink-soft);
+    line-height:1.65;
+    margin:0;
+    max-width:600px;
+  }
+
+  /* ===== Footer stat bar ===== */
+  .stat-bar{
+    display:flex;
+    gap:1px;
+    background:var(--ink);
+    margin-top:10px;
+  }
+  .stat-cell{
+    flex:1;
+    background:var(--ink);
+    color:var(--paper);
+    padding:22px 18px;
+    text-align:center;
+  }
+  .stat-num{
+    font-family:'Noto Serif KR', serif;
+    font-size:26px;
+    color:#EAD9B8;
+    display:block;
+    margin-bottom:4px;
+  }
+  .stat-label{
+    font-size:11.5px;
+    color:#AEB9C0;
+  }
+  .footnote{
+    font-size:11.5px;
+    color:var(--ink-faint);
+    text-align:center;
+    padding:26px 0 0;
+    line-height:1.7;
+  }
+
+  @media (max-width:640px){
+    .wrap{ padding:0 18px 60px; }
+    .doc-title{ font-size:27px; }
+  }
+
+  @media print{
+    body{ background:#fff; }
+    section{ break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="doc-header">
+  <div class="wrap">
+    <div class="doc-kicker">병원 담당자용 사용 안내 · [병원명 삽입]</div>
+    <h1 class="doc-title">EDC 사용 가이드<br><em>당뇨병족부질환 예측·관리 연구</em> — Part B</h1>
+    <div class="doc-meta">
+      <div><strong>대상</strong>eCRF 입력 담당자</div>
+      <div><strong>변수 구성</strong>총 71개 (T1 71 · T2 53 · T3 53)</div>
+      <div><strong>스키마 버전</strong>part-b-final-71-v4</div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- 01 전체 흐름 -->
+  <section>
+    <div class="section-head">
+      <span class="section-num">01</span>
+      <h2 class="section-title">전체 사용 흐름</h2>
+    </div>
+    <p class="section-sub">별도의 로그인 절차 없이 접속 즉시 데이터 입력을 시작합니다. 아래 순서는 실제 화면에서 진행되는 흐름 그대로입니다.</p>
+
+    <div class="flow">
+      <div class="flow-step" data-n="1">
+        <h4>접속</h4>
+        <p>브라우저로 접속하면 로그인 화면 없이 Dashboard로 바로 이동합니다.</p>
+      </div>
+      <div class="flow-step" data-n="2">
+        <h4>Subject 등록</h4>
+        <p>Subjects 화면에서 Subject ID를 직접 입력합니다. 이미 등록된 ID는 자동으로 거절되며, 등록에 성공하면 T1·T2·T3 방문이 자동으로 생성됩니다.</p>
+      </div>
+      <div class="flow-step" data-n="3">
+        <h4>방문일 입력</h4>
+        <p>Subject 상세 화면에서 T1·T2·T3 방문일을 입력합니다. 방문일이 없으면 “방문일을 입력해 주세요” Query가 자동으로 발생합니다.</p>
+      </div>
+      <div class="flow-step" data-n="4">
+        <h4>eCRF 입력</h4>
+        <p>방문별로 변수를 입력합니다. 범주형 항목은 select에서 선택하며, 비활성화(회색)된 칸은 조건상 입력 대상이 아닙니다.</p>
+      </div>
+      <div class="flow-step" data-n="5">
+        <h4>자동 저장 <span class="tag">저장 버튼 없음</span></h4>
+        <p>입력을 마치고 약 400ms가 지나면 자동으로 저장됩니다. 화면 상단의 저장 상태 표시를 반드시 확인합니다.</p>
+      </div>
+      <div class="flow-step" data-n="6">
+        <h4>Query 확인 · 해결</h4>
+        <p>저장 시 값 검증이 자동 실행되어 오류가 있으면 Query가 생성됩니다. 값을 올바르게 수정하면 해당 Query는 자동으로 Resolved 처리됩니다.</p>
+      </div>
+      <div class="flow-step" data-n="7">
+        <h4>Export</h4>
+        <p>Export 화면에서 대상자·방문 범위를 선택하고 필요 시 Query 시트를 포함해 XLSX 파일로 내려받습니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 화면 구성 -->
+  <section>
+    <div class="section-head">
+      <span class="section-num">02</span>
+      <h2 class="section-title">화면 구성</h2>
+    </div>
+    <p class="section-sub">사이드바에 표시되는 화면입니다. 음영으로 표시된 두 화면은 관리자 비밀번호 확인 후에만 접근할 수 있습니다.</p>
+
+    <div class="screen-grid">
+      <div class="screen-cell">
+        <div class="screen-name">Dashboard</div>
+        <div class="screen-desc">등록 인원, Open Query 수, 방문별 입력 진행률을 한눈에 확인합니다.</div>
+      </div>
+      <div class="screen-cell">
+        <div class="screen-name">Subjects</div>
+        <div class="screen-desc">대상자 등록·검색·삭제. 삭제 시 연결된 모든 데이터가 함께 삭제됩니다.</div>
+      </div>
+      <div class="screen-cell">
+        <div class="screen-name">Subject 상세</div>
+        <div class="screen-desc">방문일·eCRF 입력, EMR Reference 확인, Query 필터가 이루어지는 실제 작업 화면입니다.</div>
+      </div>
+      <div class="screen-cell">
+        <div class="screen-name">Queries</div>
+        <div class="screen-desc">대상자별 현재·과거 Query 목록. 행을 선택하면 해당 입력 항목으로 이동합니다.</div>
+      </div>
+      <div class="screen-cell">
+        <div class="screen-name">Export</div>
+        <div class="screen-desc">범위를 선택해 XLSX로 내려받습니다. 별도 비밀번호 제한은 없습니다.</div>
+      </div>
+      <div class="screen-cell admin">
+        <div class="screen-name">Rule Master</div>
+        <div class="screen-desc">변수 정의(범위·범주·조건)를 수정하는 화면입니다.</div>
+        <span class="screen-badge">관리자 비밀번호 필요</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 저장 상태 -->
+  <section>
+    <div class="section-head">
+      <span class="section-num">03</span>
+      <h2 class="section-title">저장 상태 확인하는 법</h2>
+    </div>
+    <p class="section-sub">별도 저장 버튼이 없기 때문에, 값을 입력한 뒤에는 반드시 화면의 저장 상태 표시를 확인해야 합니다.</p>
+
+    <div class="status-row">
+      <div class="status-card ok">
+        <span class="status-chip">Saved</span>
+        <p>정상적으로 저장이 완료된 상태입니다. 다음 항목으로 이동해도 됩니다.</p>
+      </div>
+      <div class="status-card busy">
+        <span class="status-chip">Saving…</span>
+        <p>저장이 진행 중입니다. 이 표시가 사라지기 전에 창을 닫지 않습니다.</p>
+      </div>
+      <div class="status-card fail">
+        <span class="status-chip">Save failed</span>
+        <p>저장에 실패한 상태입니다. 네트워크 연결을 확인한 뒤 값을 다시 입력합니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 Query -->
+  <section>
+    <div class="section-head">
+      <span class="section-num">04</span>
+      <h2 class="section-title">Query는 어떻게 발생하고 해결되나요</h2>
+    </div>
+    <p class="section-sub">Query는 담당자가 직접 만드는 것이 아니라, 저장 시 시스템이 값을 검증하며 자동으로 생성·해결합니다.</p>
+
+    <div class="loop">
+      <div class="loop-node error">값 입력 · 오류 발생</div>
+      <span class="loop-arrow">→</span>
+      <div class="loop-node error">Query 자동 생성</div>
+      <span class="loop-arrow">→</span>
+      <div class="loop-node">담당자가 값 수정</div>
+      <span class="loop-arrow">→</span>
+      <div class="loop-node ok">Query 자동 Resolved</div>
+    </div>
+
+    <table class="qtypes">
+      <tr><th>Query 유형</th><th>발생 조건</th><th>표시 메시지</th></tr>
+      <tr><td class="qtype-name">MISSING</td><td>필수 입력 항목이 비어 있음</td><td>필수 입력값입니다.</td></tr>
+      <tr><td class="qtype-name">CATEGORY</td><td>허용되지 않은 범주 값</td><td>허용되지 않은 Category 값입니다.</td></tr>
+      <tr><td class="qtype-name">INTEGER</td><td>정수가 아닌 값 입력</td><td>정수만 입력할 수 있습니다.</td></tr>
+      <tr><td class="qtype-name">NUMERIC</td><td>숫자로 해석할 수 없는 값</td><td>숫자로 해석할 수 없는 값입니다.</td></tr>
+      <tr><td class="qtype-name">RANGE</td><td>지정된 최소·최대 범위 초과</td><td>{min}~{max} 범위를 벗어났습니다.</td></tr>
+      <tr><td class="qtype-name">방문일 MISSING</td><td>방문일이 입력되지 않음</td><td>방문일을 입력해 주세요.</td></tr>
+    </table>
+  </section>
+
+  <!-- 05 입력 유형 -->
+  <section>
+    <div class="section-head">
+      <span class="section-num">05</span>
+      <h2 class="section-title">입력 항목 유형</h2>
+    </div>
+    <p class="section-sub">변수의 자료형에 따라 화면에 표시되는 입력 방식이 다릅니다. 체크박스·라디오 버튼은 없습니다.</p>
+
+    <div class="dtype-row">
+      <div class="dtype-cell"><span class="dtype-code">id</span><span class="dtype-ui">읽기 전용</span></div>
+      <div class="dtype-cell"><span class="dtype-code">character</span><span class="dtype-ui">텍스트 입력</span></div>
+      <div class="dtype-cell"><span class="dtype-code">integer</span><span class="dtype-ui">숫자 입력 (정수)</span></div>
+      <div class="dtype-cell"><span class="dtype-code">real</span><span class="dtype-ui">숫자 입력</span></div>
+      <div class="dtype-cell"><span class="dtype-code">datetime</span><span class="dtype-ui">날짜 선택</span></div>
+      <div class="dtype-cell"><span class="dtype-code">categorical</span><span class="dtype-ui">목록에서 선택</span></div>
+      <div class="dtype-cell"><span class="dtype-code">계산 필드</span><span class="dtype-ui">읽기 전용 (자동계산)</span></div>
+    </div>
+  </section>
+
+  <!-- 06 주의사항 -->
+  <section>
+    <div class="section-head">
+      <span class="section-num">06</span>
+      <h2 class="section-title">꼭 알아야 할 주의사항</h2>
+    </div>
+
+    <div class="caution-list">
+      <div class="caution-item">
+        <svg class="caution-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0-.8 12.1a1.5 1.5 0 0 1-1.5 1.4H9.3a1.5 1.5 0 0 1-1.5-1.4L7 7"/></svg>
+        <div class="caution-body">
+          <h4>Subject 삭제는 되돌릴 수 없습니다</h4>
+          <p>삭제를 확정하면 해당 대상자의 입력값·방문·Query·Export 기록이 모두 함께 영구 삭제됩니다.</p>
+        </div>
+      </div>
+      <div class="caution-item">
+        <svg class="caution-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <div class="caution-body">
+          <h4>EMR Reference는 입력값이 아닙니다</h4>
+          <p>변수 옆에 표시되는 EMR 위치 정보는 참고용 안내이며, 값을 그대로 옮겨 적는 항목이 아닙니다.</p>
+        </div>
+      </div>
+      <div class="caution-item">
+        <svg class="caution-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="10" width="16" height="10" rx="1"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+        <div class="caution-body">
+          <h4>관리자 비밀번호는 개인 계정이 아닙니다</h4>
+          <p>Rule Master·Audit Trail 화면 접근용 공용 비밀번호이며, 확인 후 30분 동안만 해당 브라우저 탭에서 유효합니다.</p>
+        </div>
+      </div>
+      <div class="caution-item">
+        <svg class="caution-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3v13m0 0-4-4m4 4 4-4M5 20h14"/></svg>
+        <div class="caution-body">
+          <h4>XLSX Export는 전체 백업이 아닙니다</h4>
+          <p>Export 파일은 열람·제출용 다운로드이며, 데이터베이스 전체를 복구하기 위한 백업 파일을 대체하지 않습니다.</p>
+        </div>
+      </div>
+      <div class="caution-item">
+        <svg class="caution-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg>
+        <div class="caution-body">
+          <h4>개인 계정·로그아웃 기능은 아직 없습니다</h4>
+          <p>현재는 사용자별 로그인·역할 구분 없이 하나의 화면을 함께 사용하는 구조이므로, 입력 시 담당자 간 소통이 필요합니다.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="stat-bar">
+    <div class="stat-cell"><span class="stat-num">71</span><span class="stat-label">활성 연구 변수</span></div>
+    <div class="stat-cell"><span class="stat-num">71 / 53 / 53</span><span class="stat-label">T1 / T2 / T3 변수 수</span></div>
+    <div class="stat-cell"><span class="stat-num">3</span><span class="stat-label">방문 (T1·T2·T3)</span></div>
+  </div>
+
+  <p class="footnote">본 안내는 EDC 화면의 실제 구현을 기준으로 작성되었습니다 · 스키마 버전 part-b-final-71-v4</p>
+
+</div>
+
+</body>
+</html>

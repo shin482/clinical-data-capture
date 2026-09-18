@@ -333,7 +333,7 @@
     "timepointT1": true,
     "timepointT2": false,
     "timepointT3": false,
-    "emrLocation": "외래 초진 기록\n외래 재진 지록\n진단코드명",
+    "emrLocation": "외래 초진 기록\n외래 재진 기록\n진단 코드명",
     "inputGuide": "",
     "displayOrder": 12
   },
@@ -359,7 +359,7 @@
     "timepointT1": true,
     "timepointT2": false,
     "timepointT3": false,
-    "emrLocation": "외래 초진 기록\n외래 재진 지록\n진단코드명",
+    "emrLocation": "외래 초진 기록\n외래 재진 기록\n진단 코드명",
     "inputGuide": "",
     "displayOrder": 13
   },

@@ -4,7 +4,7 @@ import { useParams, usePathname, useRouter } from 'next/navigation'
 import { workspaceRoutes } from '@/lib/workspace-routes'
 import { derivedRules, derivedValues, isDerivedField, isFieldActive } from '@/lib/entry-rules'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowLeft, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Plus, Search, SlidersHorizontal, Trash2, Users } from 'lucide-react'
+import { ArrowLeft, BookOpen, Check, ChevronRight, Download, FileClock, HelpCircle, LayoutDashboard, Pencil, Plus, Search, SlidersHorizontal, Trash2, Users } from 'lucide-react'
 
 import { type Visit } from '@/lib/crf-metadata'
 import { sortSubjectsNumerically, getOpenQueryCount, getSubjectQueryStatus, normalizeQueryStatus, emrReferences } from '@/lib/clinical-utils'
@@ -81,6 +81,11 @@ const nav = [
   { label: 'Queries', icon: HelpCircle },
   { label: 'Rule Master', icon: SlidersHorizontal },
   { label: 'Export', icon: Download },
+]
+
+const emrFilterOrder = [
+  '첫화면', '검사결과', '검사결과(영상)', '외래 초진기록', '외래 재진기록', '외래 초/재진 기록',
+  '입원 초진기록', '수술기록', '입/퇴원 기록', '임상기록 결과', '진단 코드명', '처방', '초기 간호 기록지', '환자 정보', '-',
 ]
 
 const adminNav = [
@@ -292,6 +297,10 @@ export default function EdcWorkspace() {
   )
 
   const handleNavClick = (label: string) => {
+    if (label === 'EDC guideline') {
+      window.location.assign('/guide')
+      return
+    }
     if (isProtectedPage(label)) {
       let access = emptyPageAccess
       try { access = readPageAccess(sessionStorage) } catch {}
@@ -410,13 +419,20 @@ export default function EdcWorkspace() {
           </div>
         </button>
 
-        <div className="site-switcher">
+         <div className="site-switcher">
           <span className="site-dot" />
           <div>
             <span className="eyebrow">CURRENT SITE</span>
             <strong>{runtimeConfig.site}</strong>
           </div>
         </div>
+
+        <nav className="guideline-nav">
+          <button type="button" className="nav-item" onClick={() => handleNavClick('EDC guideline')}>
+            <BookOpen size={17} />
+            <span>EDC guideline</span>
+          </button>
+        </nav>
 
         <div className="nav-label">WORKSPACE</div>
         <nav>
@@ -427,6 +443,8 @@ export default function EdcWorkspace() {
             </button>
           ))}
         </nav>
+
+      
 
         <div className="nav-label admin-label">ADMINISTRATION</div>
         <nav>
@@ -538,6 +556,8 @@ function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; 
   const [createError, setCreateError] = useState('')
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState('')
+  const [editSubject, setEditSubject] = useState<{ originalId: string; subjectId: string } | null>(null)
+  const [editError, setEditError] = useState('')
 
   const create = async () => {
     const subjectId = newId?.trim()
@@ -563,6 +583,21 @@ function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; 
     setDeleteError('')
     await refresh()
     notify('대상자가 삭제되었습니다.')
+  }
+
+  const updateSubject = async () => {
+    if (!editSubject?.subjectId.trim()) return
+    const response = await fetch(`/api/subjects/${encodeURIComponent(editSubject.originalId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subjectId: editSubject.subjectId.trim() }),
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) { setEditError(body.error || '대상자 정보 수정에 실패했습니다.'); return }
+    setEditSubject(null)
+    setEditError('')
+    await refresh()
+    notify('대상자 정보가 수정되었습니다.')
   }
 
   return (
@@ -606,6 +641,9 @@ function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; 
                   <td>{item.open_queries || '—'}</td>
                   <td className="muted">{formatDateTime(item.updated_at)}</td>
                   <td className="subject-row-actions">
+                    <button type="button" className="subject-edit-btn" aria-label={`${item.subject_id} 수정`} onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setEditError(''); setEditSubject({ originalId: item.subject_id, subjectId: item.subject_id }) }}>
+                      <Pencil size={14} /> 수정
+                    </button>
                     <button type="button" className="subject-delete-btn" aria-label={`${item.subject_id} 삭제`} onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setDeleteError(''); setDeleteId(item.subject_id) }}>
                       <Trash2 size={14} /> 삭제
                     </button>
@@ -647,6 +685,22 @@ function Subjects({ subjects, onOpen, refresh, notify }: { subjects: Subject[]; 
                 <Check size={15} /> Create
               </button>
               {createError && <span className="modal-inline-error" role="alert">{createError}</span>}
+            </div>
+          </form>
+        </div>
+      )}
+      {editSubject !== null && (
+        <div className="modal-backdrop">
+          <form className="modal" onSubmit={(event) => { event.preventDefault(); void updateSubject() }}>
+            <div className="panel-head">
+              <div><h2>Subject 정보 수정</h2><p>Subject Number를 변경해도 Visit, Clinical data, Query, Audit Trail 연결은 유지됩니다.</p></div>
+              <button type="button" className="icon-btn" aria-label="닫기" onClick={() => setEditSubject(null)}>×</button>
+            </div>
+            <label>Subject Number<input autoFocus value={editSubject.subjectId} onChange={(event) => { setEditSubject({ ...editSubject, subjectId: event.target.value }); setEditError('') }} /></label>
+            <div className="detail-actions">
+              <button type="button" className="outline-btn" onClick={() => setEditSubject(null)}>취소</button>
+              <button type="submit" className="primary-btn"><Check size={15} /> 저장</button>
+              {editError && <span className="modal-inline-error" role="alert">{editError}</span>}
             </div>
           </form>
         </div>
@@ -706,9 +760,8 @@ function Detail({
   const [highlight, setHighlight] = useState('')
   const shownVisits = allVisits.filter((visit) => !visitFilter || visit === visitFilter)
   const referencesFor = (rule: Rule) => emrReferences(rule)
-  const emrGroups = Array.from(new Set(rules.flatMap(referencesFor))).sort((a, b) => a.localeCompare(b, 'ko'))
-  if (rules.some((rule) => referencesFor(rule).length === 0)) emrGroups.push('EMR 위치 미지정')
-  const shownRules = rules.filter((rule) => !emrFilter || (emrFilter === 'EMR 위치 미지정' ? referencesFor(rule).length === 0 : referencesFor(rule).includes(emrFilter)))
+  const emrGroups = emrFilterOrder
+  const shownRules = rules.filter((rule) => !emrFilter || referencesFor(rule).includes(emrFilter))
   useEffect(() => {
     if (loading || !target || target.subject_id !== subject) return
     const id = `${target.variable_key}-${target.timepoint}`

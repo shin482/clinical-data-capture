@@ -168,8 +168,9 @@ export default function EdcWorkspace() {
     window.setTimeout(() => setToast(''), 2200)
   }
 
-  const refreshRules = async () => {
-    const response = await fetch('/api/variables')
+  const refreshRules = async (admin = false) => {
+    const response = await fetch(admin ? '/api/variables?admin=1' : '/api/variables')
+    if (!response.ok) throw new Error('Rule refresh failed')
     const data = await response.json()
     setRules(data.map(ruleFromApi))
     await refreshSubjects()
@@ -399,7 +400,7 @@ export default function EdcWorkspace() {
     ) : active === 'Queries' ? (
       <Queries queries={queries} subjects={subjects} onOpen={(query) => { void openSubject(query.subject_id, query) }} />
     ) : active === 'Rule Master' ? (
-      pageAccess['Rule Master'] ? <Rules rules={rules} refresh={refreshRules} notify={notify} /> : null
+      pageAccess['Rule Master'] ? <Rules rules={rules} refresh={() => refreshRules(true)} notify={notify} /> : null
     ) : active === 'Export' ? (
       <Export subjects={subjects} />
     ) : active === 'Audit Trail' ? (
@@ -496,6 +497,7 @@ export default function EdcWorkspace() {
         {helpOpen && <HelpModal version={runtimeConfig.version} site={runtimeConfig.site} onClose={() => setHelpOpen(false)} />}
         {adminTarget && <AdminAccessModal target={adminTarget} onCancel={() => { setAdminTarget(null); if (isProtectedPage(active) && !pageAccess[active]) setActive('Dashboard') }} onSuccess={() => {
           try { sessionStorage.setItem(pageSessionKeys[adminTarget], JSON.stringify({ authenticatedAt: Date.now() })) } catch {}
+          if (adminTarget === 'Rule Master') void refreshRules(true)
           setPageAccess((current) => ({ ...current, [adminTarget]: true })); setActive(adminTarget); setAdminTarget(null)
         }} />}
         {toast && <div className="toast">{toast}</div>}
@@ -852,7 +854,7 @@ function Detail({
               return (
                 <tr key={rule.variableKey} className={`${openForRule.length ? "queried-row" : ""} ${highlight === rule.variableKey ? "query-highlight" : ""}`}>
                   <td>
-                    <div className={`variable-primary-row${display.note ? ' has-note' : ''}`}><strong className="variable-main">{display.primary}{['integer', 'real'].includes(rule.dataType) && !rule.allowBlank ? <span className="required-mark"> *</span> : null}</strong>
+                    <div className={`variable-primary-row${display.note ? ' has-note' : ''}`}><strong className="variable-main">{display.primary}</strong>
                     {display.note && <span className="variable-primary-note">{display.note}</span>}</div>
                     <small className="variable-subtitle">{display.secondary}</small>
                   </td>
@@ -1180,6 +1182,8 @@ function Export({ subjects }: { subjects: Subject[] }) {
   const [history, setHistory] = useState<{ id: number; exported_at: string; user_name: string; subject_id: string | null; visit: string | null; file_name: string; export_type: string; status: string }[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [openQueryWarning, setOpenQueryWarning] = useState<number | null>(null)
+  const checkingQueries = useRef(false)
   const refreshHistory = async () => {
     const response = await fetch('/api/export?history=1', { cache: 'no-store' })
     if (!response.ok) throw new Error('Export history could not be loaded')
@@ -1201,6 +1205,32 @@ function Export({ subjects }: { subjects: Subject[] }) {
       window.setTimeout(() => URL.revokeObjectURL(url), 1000)
       await refreshHistory()
     } catch (e) { setError(e instanceof Error ? e.message : 'Export failed') } finally { exporting.current = false; setBusy(false) }
+  }
+
+  const requestDownload = async () => {
+    if (checkingQueries.current || exporting.current) return
+    checkingQueries.current = true
+    setBusy(true)
+    setError('')
+    try {
+      const response = await fetch('/api/queries', { cache: 'no-store' })
+      if (!response.ok) throw new Error('Query status could not be loaded')
+      const queries = await response.json() as QueryRow[]
+      const scopedQueries = selectedSubject
+        ? queries.filter((query) => query.subject_id === selectedSubject)
+        : queries
+      const openQueries = getOpenQueryCount(scopedQueries)
+      if (openQueries > 0) {
+        setOpenQueryWarning(openQueries)
+        return
+      }
+      await download()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Query status could not be loaded')
+    } finally {
+      checkingQueries.current = false
+      setBusy(false)
+    }
   }
 
   const exportQuery = useMemo(() => {
@@ -1243,7 +1273,7 @@ function Export({ subjects }: { subjects: Subject[] }) {
 
         </div>
         <label className="check-control"><input type="checkbox" checked={includeQueries} onChange={(event) => setIncludeQueries(event.target.checked)} /> Query 시트 포함</label>
-        <button type="button" className="export-card export-download-card" aria-label="Excel 다운로드" aria-busy={busy} disabled={busy} onClick={() => void download()}>
+        <button type="button" className="export-card export-download-card" aria-label="Excel 다운로드" aria-busy={busy} disabled={busy} onClick={() => void requestDownload()}>
           <span className="export-icon"><Download size={18} aria-hidden="true" /></span>
           <span className="export-card-copy" aria-live="polite"><strong>{busy ? 'Excel 파일 생성 중...' : 'Excel 다운로드'}</strong><span>{busy ? '잠시만 기다려주세요.' : '선택한 연구 데이터를 .xlsx 파일로 다운로드합니다.'}</span></span>
         </button>
@@ -1255,6 +1285,23 @@ function Export({ subjects }: { subjects: Subject[] }) {
           <tbody>{history.map((row) => <tr key={row.id}><td>{formatDateTime(row.exported_at)}</td><td>{row.user_name}</td><td>{row.subject_id || 'All subjects'}</td><td>{row.visit || 'All visits'}</td><td>{row.file_name}</td><td>{row.export_type}</td><td><StatusPill tone="good">{row.status}</StatusPill></td></tr>)}{!history.length && <tr><td colSpan={7}>No exports yet</td></tr>}</tbody>
         </table>
       </section>
+      {openQueryWarning !== null && (
+        <div className="modal-backdrop">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="export-query-warning-title">
+            <div className="panel-head">
+              <div><h2 id="export-query-warning-title" className="export-query-warning-title"><Download size={17} aria-hidden="true" /> 데이터 Export</h2></div>
+              <button type="button" className="icon-btn" aria-label="닫기" onClick={() => setOpenQueryWarning(null)}>×</button>
+            </div>
+            <p className="export-query-warning-count">⚠️ 현재 미해결 Query: <strong>{openQueryWarning}건</strong></p>
+            <p>Query가 해결되지 않은 데이터가<br />포함될 수 있습니다.</p>
+            <p>그래도 Export하시겠습니까?</p>
+            <div className="detail-actions export-query-warning-actions">
+              <button type="button" className="outline-btn" onClick={() => setOpenQueryWarning(null)}>취소</button>
+              <button type="button" className="primary-btn" onClick={() => { setOpenQueryWarning(null); void download() }}>Export</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

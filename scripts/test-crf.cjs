@@ -33,7 +33,9 @@ async function main() {
   assert.equal((await save({ value: '8' })).status, 200)
   assert.equal(open()[0].query_type, 'CATEGORY')
   assert.equal((await save({ value: '99' })).status, 200)
-  assert.equal(open().length, 0, 'Existing Unknown 99 remains valid')
+  assert.equal(open()[0].query_type, 'CATEGORY', 'occl only permits categories 0/1 and explicitly disallows Unknown 99')
+  assert.equal((await save({ value: '1' })).status, 200)
+  assert.equal(open().length, 0)
   await save({ value: null, missingReason: 'NOT_DONE' })
   const detail = await (await GET(new NextRequest('http://localhost'), context)).json()
   const occlusion = detail.values.find((item) => item.variableKey === 'occl')
@@ -51,13 +53,28 @@ async function main() {
   assert.equal(helpers.getSubjectQueryStatus([]), 'RESOLVED')
   assert.equal(helpers.getSubjectQueryStatus([{ status: 'RESOLVED' }]), 'RESOLVED')
   const auth = require('../app/api/admin/auth/route.ts').POST
-  for (const [site, password] of [['IJH', '202509021'], ['EWH', '202601040'], ['SCH', '202509006']]) {
+  const testAdminPasswords = { IJH: 'test-admin-password-ijh', EWH: 'test-admin-password-ewh', SCH: 'test-admin-password-sch' }
+  for (const [site, password] of Object.entries(testAdminPasswords)) {
     process.env.EDC_SITE = site
+    process.env[`ADMIN_PASSWORD_${site}`] = password
     assert.equal((await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password }) }))).status, 200)
     assert.equal((await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password: 'incorrect' }) }))).status, 401)
   }
   process.env.EDC_SITE = 'IJH'
-  assert.equal((await (await require('../app/api/admin/status/route.ts').GET()).json()).isAdmin, false)
+  const statusApi = require('../app/api/admin/status/route.ts').GET
+  assert.equal((await (await statusApi(new Request('http://localhost/api/admin/status'))).json()).isAdmin, false)
+  const adminLogin = await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password: testAdminPasswords.IJH }) }))
+  const adminCookie = adminLogin.headers.get('set-cookie').split(';', 1)[0]
+  const adminRequest = (url, init = {}) => new NextRequest(url, { ...init, headers: { ...(init.headers || {}), cookie: adminCookie } })
+  assert.equal((await (await statusApi(adminRequest('http://localhost/api/admin/status'))).json()).isAdmin, true)
+  const variablesApi = require('../app/api/variables/route.ts')
+  assert.equal((await variablesApi.GET(new NextRequest('http://localhost/api/variables?admin=1'))).status, 401)
+  assert.equal((await variablesApi.GET(adminRequest('http://localhost/api/variables?admin=1'))).status, 200)
+  assert.equal((await variablesApi.POST(new Request('http://localhost/api/variables', { method: 'POST' }))).status, 401)
+  assert.equal((await variablesApi.POST(adminRequest('http://localhost/api/variables', { method: 'POST' }))).status, 409)
+  const { ADMIN_AUTH_TTL_MS } = require('../lib/admin-auth-config.ts')
+  const { isAdminRequest } = require('../lib/admin-session.server.ts')
+  assert.equal(isAdminRequest(adminRequest('http://localhost'), Date.now() + ADMIN_AUTH_TTL_MS + 1000), false)
   const exportApi = require('../app/api/export/route.ts').GET
   const scoped = await exportApi(new NextRequest('http://localhost/api/export?subject=CRF_TEST&visit=T1'))
   const scopedBook = xlsx.read(Buffer.from(await scoped.arrayBuffer()))
@@ -72,7 +89,8 @@ async function main() {
   assert.equal((await exportApi(new NextRequest('http://localhost/api/export?visit=T9'))).status, 400)
   assert.equal((await (await exportApi(new NextRequest('http://localhost/api/export?history=1'))).json()).length, beforeInvalid)
   const auditApi = require('../app/api/audit/route.ts').GET
-  const auditRows = await auditApi(new NextRequest('http://localhost/api/audit?subjectId=CRF_TEST&visit=T1&action=EXPORT&from=2000-01-01&to=2100-01-01')).json()
+  assert.equal((await auditApi(new NextRequest('http://localhost/api/audit'))).status, 401)
+  const auditRows = await auditApi(adminRequest('http://localhost/api/audit?subjectId=CRF_TEST&visit=T1&action=EXPORT&from=2000-01-01&to=2100-01-01')).json()
   assert.equal(auditRows.length, 1)
   assert.equal(auditRows[0].action, 'EXPORT')
   console.log('PASS: natural sorting, derived status, password validation, unauthenticated status, scoped export, persistent newest-first history, invalid export exclusion, combined audit filters')
@@ -80,7 +98,7 @@ async function main() {
   assert.equal((await save({ value: null, missingReason: 'INVALID' })).status, 400)
   assert.equal((await save({ timepoint: 'T4', value: '1' })).status, 400)
   await save({ value: '' })
-  assert.equal(open()[0].query_type, 'MISSING', 'Clearing a reason restores required validation')
+  assert.equal(open().length, 0, 'Inactive child fields do not create missing-value queries')
   await save({ value: '1' })
   assert.equal(open().length, 0)
   await save({ variableKey: 'occl_no', value: '11' })
@@ -136,9 +154,10 @@ async function main() {
   assert.equal(db().prepare('SELECT COUNT(*) AS count FROM audit_logs').get().count, auditCount)
   assert.equal((await save({ variableKey: 'occl_no', timepoint: 'T1', value: '3' })).status, 200)
   const patchRule = require('../app/api/variables/[variableKey]/route.ts').PATCH
-  await patchRule(new Request('http://localhost/api/variables/occl_no', { method: 'PATCH', body: JSON.stringify({ inputGuide: 'Visit restriction test' }) }), { params: Promise.resolve({ variableKey: 'occl_no' }) })
+  assert.equal((await patchRule(new Request('http://localhost/api/variables/occl_no', { method: 'PATCH', body: '{}' }), { params: Promise.resolve({ variableKey: 'occl_no' }) })).status, 401)
+  await patchRule(adminRequest('http://localhost/api/variables/occl_no', { method: 'PATCH', body: JSON.stringify({ inputGuide: 'Visit restriction test' }) }), { params: Promise.resolve({ variableKey: 'occl_no' }) })
   assert.equal(db().prepare("SELECT timepoint_t2 FROM variable_definitions WHERE variable_key='occl_no'").get().timepoint_t2, 0)
-  const auditWithoutUser = await auditApi(new NextRequest('http://localhost/api/audit?subjectId=CRF_TEST&visit=T1&action=EXPORT&user=does-not-exist')).json()
+  const auditWithoutUser = await auditApi(adminRequest('http://localhost/api/audit?subjectId=CRF_TEST&visit=T1&action=EXPORT&user=does-not-exist')).json()
   assert.equal(auditWithoutUser.length, 1)
   assert.equal(auditWithoutUser[0].modified_by, 'IJH')
   console.log('PASS: partial subject progress, zero/false values, visit-specific denominator, T1-only API restriction, metadata edit preservation, user filter removal')
@@ -149,7 +168,7 @@ async function main() {
   // Exercise the real subjects endpoint against saved rows, independently of queries.
   const completeSubject = ensureSubject('COMPLETE_TEST')
   ensureSubject('EMPTY_TEST')
-  const definitions = db().prepare('SELECT * FROM variable_definitions WHERE enabled=1 AND allow_blank=0').all()
+  const definitions = db().prepare('SELECT * FROM variable_definitions WHERE enabled=1 AND study_active=1').all()
   const insertValue = db().prepare('INSERT INTO clinical_values(subject_id,visit_id,variable_key,value) VALUES(?,?,?,?)')
   db().transaction(() => {
     for (const visit of db().prepare('SELECT * FROM visits WHERE subject_id=?').all(completeSubject.id)) {
@@ -168,7 +187,7 @@ async function main() {
   assert.equal(summary.complete, 1)
   assert.equal(summary.complete + summary.incomplete, summary.total)
   assert.deepEqual(summary.visits.map((v) => v.completed), [1, 1, 1])
-  db().prepare("UPDATE clinical_values SET value='' WHERE subject_id=? AND variable_key='occl' AND visit_id=(SELECT id FROM visits WHERE subject_id=? AND timepoint='T2')").run(completeSubject.id, completeSubject.id)
+  db().prepare("UPDATE clinical_values SET value='' WHERE subject_id=? AND variable_key='age' AND visit_id=(SELECT id FROM visits WHERE subject_id=? AND timepoint='T2')").run(completeSubject.id, completeSubject.id)
   subjectsData = await subjectsApi().json()
   summary = getDataEntrySummary(subjectsData)
   assert.equal(summary.complete, 0)
@@ -186,7 +205,6 @@ async function main() {
   assert.deepEqual(readPageAccess(storage), { 'Rule Master': false, 'Audit Trail': true })
   session.clear()
   assert.deepEqual(readPageAccess(storage), { 'Rule Master': false, 'Audit Trail': false })
-  const { ADMIN_AUTH_TTL_MS } = require('../lib/admin-auth-config.ts')
   const now = Date.now()
   session.set(pageSessionKeys['Rule Master'], JSON.stringify({ authenticatedAt: now }))
   session.set(pageSessionKeys['Audit Trail'], JSON.stringify({ authenticatedAt: now + 1000 }))
@@ -238,7 +256,7 @@ async function main() {
   const exportedTime = history[0].exported_at
   assert.ok(exportedTime.endsWith('Z'))
   db().prepare("INSERT INTO audit_logs(subject_id,modified_at,action) VALUES('TZ_TEST','2026-09-13 15:00:00','UPDATE'),('TZ_TEST','2026-09-14T15:00:00.000Z','UPDATE')").run()
-  const timezoneRows = await auditApi(new NextRequest('http://localhost/api/audit?subjectId=TZ_TEST&fromInstant=2026-09-13T15:00:00Z&toInstant=2026-09-14T15:00:00Z')).json()
+  const timezoneRows = await auditApi(adminRequest('http://localhost/api/audit?subjectId=TZ_TEST&fromInstant=2026-09-13T15:00:00Z&toInstant=2026-09-14T15:00:00Z')).json()
   assert.equal(timezoneRows.length,1)
   assert.equal(timezoneRows[0].modified_at,'2026-09-13 15:00:00')
   console.log('PASS: field-weighted aggregate progress, UTC/SQLite/KST formatting, actual server save times, read-only open, query lifecycle timestamps, historical audit preservation')

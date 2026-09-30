@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { canonicalVariableKey, legacyVariableAliases } from '@/lib/study-schema'
+import { isAdminRequest } from '@/lib/admin-session.server'
 
 export function GET(request: NextRequest) {
+  if (!isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const params = request.nextUrl.searchParams
   const where: string[] = []
   const values: unknown[] = []

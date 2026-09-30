@@ -1,11 +1,21 @@
 {
   "name": "my-project",
-  "version": "0.1.0",
+  "version": "1.1.8",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "update-agent:start": "node update-agent/server.js",
+    "update-agent:test": "node --test update-agent/*.test.js scripts/update-agent-client.test.mjs",
+    "update-agent:update-test": "node --test update-agent/update-api.test.js update-agent/docker-client.test.js",
+    "update-agent:db-test": "node --test update-agent/db-safety.test.js",
+    "update-agent:docker-test": "node update-agent/docker-update-test.js",
+    "update-status:test": "node scripts/test-update-status-ui.cjs",
+    "update-ui:test": "node --test scripts/update-api-route.test.mjs scripts/update-agent-client.test.mjs && node scripts/test-update-status-ui.cjs",
+    "docker:build": "node scripts/docker-build.js local",
+    "docker:build:ghcr": "node scripts/docker-build.js ghcr",
+    "docker:push:ghcr": "node scripts/docker-build.js push-ghcr"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -29,6 +39,7 @@
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "postcss": "^8.5",
     "tailwindcss": "^4.3.3",
     "typescript": "5.7.3"

@@ -15,12 +15,24 @@ __v0_jsx-dev-runtime.ts
 .vercel/
 
 # Environment variables
+.env
+.env.*
+!.env.example
 .env*.local
 
 # Local build, release, and database artifacts
 release/
 docker-build*.log
 data/*.backup
+data/db-backups/
+*.sqlite.backup-*
+*.sqlite.migration-failed-*
+secrets/
+update-agent-build/
+EDC-Update-Agent.exe
+EDC-Installer-*/
+EDC-Installer-*.zip
+EDC_사용자_가이드라인_인포그래픽.html
 
 # Common ignores
 node_modules

@@ -37,8 +37,14 @@ async function main() {
   const { db } = require('../lib/db/index.ts')
   const { migrateStudySchema } = require('../lib/db/study-migration.ts')
   const { NextRequest } = require('next/server')
+  process.env.EDC_SITE = 'IJH'
+  process.env.ADMIN_PASSWORD_IJH = 'test-admin-password-ijh'
+  const auth = require('../app/api/admin/auth/route.ts').POST
+  const login = await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password: process.env.ADMIN_PASSWORD_IJH }) }))
+  const adminCookie = login.headers.get('set-cookie').split(';', 1)[0]
+  const adminRequest = (url, init = {}) => new NextRequest(url, { ...init, headers: { ...(init.headers || {}), cookie: adminCookie } })
   const variablesApi = require('../app/api/variables/route.ts')
-  const variables = await variablesApi.GET().json()
+  const variables = await variablesApi.GET(new NextRequest('http://localhost/api/variables')).json()
   assert.equal(variables.length, 71)
   assert.deepEqual(compare(source, variables), { missing: [], unexpected: [], mismatches: [] })
   assert.equal(db().prepare('SELECT count(*) AS n FROM clinical_values').get().n, 6)
@@ -65,9 +71,9 @@ async function main() {
     assert.ok(query.timepoint && query.subject_id)
   }
   const audit = require('../app/api/audit/route.ts').GET
-  const renamedAudit = await audit(new NextRequest('http://localhost/api/audit?variable=amp_dt')).json()
+  const renamedAudit = await audit(adminRequest('http://localhost/api/audit?variable=amp_dt')).json()
   assert.equal(renamedAudit[0].variable_key, 'ampdt_lt', 'Old audit text remains immutable and searchable by new key')
-  assert.equal((await audit(new NextRequest('http://localhost/api/audit?variable=dfu_wnd')).json()).length, 1)
+  assert.equal((await audit(adminRequest('http://localhost/api/audit?variable=dfu_wnd')).json()).length, 1)
 
   const detail = require('../app/api/subjects/[subjectId]/route.ts')
   const context = { params: Promise.resolve({ subjectId: 'Subject 2' }) }
@@ -100,11 +106,11 @@ async function main() {
   assert.equal(data.sex_t2, undefined)
   const patch = require('../app/api/variables/[variableKey]/route.ts').PATCH
   const ruleContext = { params: Promise.resolve({ variableKey: 'sex' }) }
-  assert.equal((await patch(new Request('http://localhost', { method: 'PATCH', body: JSON.stringify({ inputGuide: 'Check chart' }) }), ruleContext)).status, 200)
+  assert.equal((await patch(adminRequest('http://localhost', { method: 'PATCH', body: JSON.stringify({ inputGuide: 'Check chart' }) }), ruleContext)).status, 200)
   assert.equal(require(process.env.EDC_STUDY_VARIABLES_PATH).find((row) => row.variableKey === 'sex').inputGuide, 'Check chart')
-  assert.equal((await patch(new Request('http://localhost', { method: 'PATCH', body: JSON.stringify({ label: 'Wrong label' }) }), ruleContext)).status, 409)
-  assert.equal((await patch(new Request('http://localhost', { method: 'PATCH', body: JSON.stringify({ timepointT2: true }) }), ruleContext)).status, 409)
-  assert.equal((await variablesApi.POST()).status, 409)
+  assert.equal((await patch(adminRequest('http://localhost', { method: 'PATCH', body: JSON.stringify({ label: 'Wrong label' }) }), ruleContext)).status, 409)
+  assert.equal((await patch(adminRequest('http://localhost', { method: 'PATCH', body: JSON.stringify({ timepointT2: true }) }), ruleContext)).status, 409)
+  assert.equal((await variablesApi.POST(adminRequest('http://localhost/api/variables', { method: 'POST' }))).status, 409)
   db().close()
   const t1OnlyCount = source.filter((row) => row.timepointT1 && !row.timepointT2 && !row.timepointT3).length
   console.log(`PASS: source/schema/API/dictionary=71; metadata exact; migration preserves values, archives obsolete definitions and retains audit; all ${t1OnlyCount} T1-only restrictions; query navigation references; Rule Master validation edits; 2-sheet export; idempotency`)

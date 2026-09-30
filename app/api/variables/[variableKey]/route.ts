@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server'
 import { db, rowToVariable } from '@/lib/db'
 import { studyVariables } from '@/lib/study-schema'
 import { updateStudyVariableJson } from '@/lib/rule-sync'
+import { isAdminRequest } from '@/lib/admin-session.server'
 
 export async function PATCH(request: Request, context: { params: Promise<{ variableKey: string }> }) {
+  if (!isAdminRequest(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { variableKey } = await context.params
   const input = await request.json() as Record<string, unknown>
   const canonical = studyVariables.find((variable) => variable.variableKey === variableKey)

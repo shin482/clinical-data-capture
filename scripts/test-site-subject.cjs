@@ -23,8 +23,10 @@ async function main() {
   const { NextRequest } = require('next/server')
   const { db, createSubject } = require('../lib/db/index.ts')
   const auth = require('../app/api/admin/auth/route.ts').POST
-  for (const [site, password] of [['IJH', '202509021'], ['EWH', '202601040'], ['SCH', '202509006']]) {
+  const testAdminPasswords = { IJH: 'test-admin-password-ijh', EWH: 'test-admin-password-ewh', SCH: 'test-admin-password-sch' }
+  for (const [site, password] of Object.entries(testAdminPasswords)) {
     process.env.EDC_SITE = site
+    process.env[`ADMIN_PASSWORD_${site}`] = password
     assert.equal((await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password }) }))).status, 200)
     assert.equal((await auth(new Request('http://localhost/api/admin/auth', { method: 'POST', body: JSON.stringify({ password: 'incorrect' }) }))).status, 401)
   }

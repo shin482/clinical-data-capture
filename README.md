@@ -1,5 +1,164 @@
 # Clinical Data Capture · Local EDC
 
+## EDC version
+
+The current EDC version is managed only in `package.json`. The existing
+`GET /api/config` endpoint returns it with a `v` prefix, and the sidebar and
+Help dialog use the same value.
+
+Build a version-tagged Docker image with:
+
+```powershell
+npm run docker:build
+```
+
+For version `1.0.0`, this creates
+`clinical-data-capture-web-app:1.0.0`. The image also records the version in
+the OCI `org.opencontainers.image.version` label. This does not change the
+container data path or the hospital-specific `/app/data` volume mount.
+
+### Private GHCR image
+
+Set the GitHub user or organization name explicitly; it is never guessed or
+stored in the repository. Then build the same `package.json` version for GHCR:
+
+```powershell
+$env:GHCR_OWNER="your-github-username"
+npm run docker:build:ghcr
+```
+
+For version `1.0.0`, the resulting image is
+`ghcr.io/your-github-username/clinical-data-capture-web-app:1.0.0`. If the
+source repository has a different name, set its full public metadata URL
+before building:
+
+```powershell
+$env:GHCR_SOURCE_URL="https://github.com/your-github-username/your-repository"
+```
+
+Authenticate interactively, or pass a classic PAT through standard input so
+it is not embedded in source code or shell history. The PAT needs `write:packages`
+to push and `read:packages` to pull a private image; GitHub may also require
+SSO authorization when the owner is an organization.
+
+```powershell
+docker login ghcr.io -u your-github-username
+npm run docker:push:ghcr
+```
+
+For standard-input login, keep the PAT in a temporary process environment
+variable managed outside this repository and run
+`$env:GHCR_TOKEN | docker login ghcr.io -u $env:GHCR_OWNER --password-stdin`.
+Do not save a PAT, GitHub password, or registry password in `.env` files,
+scripts, README examples, Docker build arguments, or Git. After the first push,
+confirm the package visibility is **Private** in GitHub package settings.
+
+The GHCR build adds OCI version, source, and description labels. Building or
+pushing an image does not pull images, stop or start containers, run database
+migrations, connect the Docker socket to the application, or modify the
+existing `ijh-edc-data:/app/data` volume and `/app/data/edc.sqlite` database.
+
+### Step 3 Update Agent
+
+The Update Agent is a separate Node.js process and listens only on
+`127.0.0.1`. Set the hospital-specific values in the process environment and
+start it independently from the EDC container:
+
+```powershell
+$env:EDC_CONTAINER_NAME="edc-ijh"
+$env:EDC_IMAGE_REPOSITORY="ghcr.io/shin482/clinical-data-capture-web-app"
+$env:EDC_DATA_VOLUME="ijh-edc-data"
+$env:EDC_PORT="3000"
+$env:UPDATE_AGENT_PORT="3210" # optional; default is 3210
+$env:GHCR_USERNAME="shin482"
+$env:GHCR_TOKEN="<classic-PAT-with-read-packages>"
+$env:UPDATE_AGENT_AUTH_TOKEN="<same-strong-random-secret-at-least-32-characters>"
+npm run update-agent:start
+```
+
+The Step 3 API is read-only:
+
+- `GET /health` reports agent availability.
+- Authenticated `GET /status` reports the configured container, versioned image, Volume,
+  and EDC port.
+- Authenticated `GET /update/check` exchanges the configured credentials for a short-lived
+  GHCR bearer token, reads repository tags through the OCI Distribution v2
+  API, and compares strict `major.minor.patch` release tags numerically.
+
+`/status` and `/update/check` require
+`Authorization: Bearer <UPDATE_AGENT_AUTH_TOKEN>`. `/health` remains available
+without authentication. The shared token must be at least 32 characters.
+
+The EDC server uses the same secret without exposing it to the browser:
+
+```powershell
+$env:UPDATE_AGENT_URL="http://127.0.0.1:3210"
+$env:UPDATE_AGENT_AUTH_TOKEN="<same-strong-random-secret-at-least-32-characters>"
+```
+
+The browser calls `GET /api/update/status`; the Next.js server then calls the
+Agent's `/update/check` endpoint with the Bearer token. The public response is
+restricted to `currentVersion`, `latestVersion`, and `updateAvailable`.
+
+`GHCR_TOKEN` must be a classic GitHub PAT with the minimum `read:packages`
+scope and read access to the private package. Never save the real value in the
+repository or README. Remove it from the current PowerShell process after the
+agent is stopped:
+
+```powershell
+Remove-Item Env:GHCR_TOKEN
+```
+
+If authentication, registry access, or tag parsing fails, `/update/check`
+returns HTTP `503` with a generic error instead of incorrectly reporting that
+no update is available. Credentials and Authorization headers are not returned
+or logged.
+
+No endpoint accepts Docker commands. This step does not connect to the Docker
+socket, pull an image, replace a container, run a migration, or access the
+SQLite database. In particular, it never creates, deletes, or modifies the
+configured Docker Volume.
+
+### Step 5-1 Docker control foundation
+
+`update-agent/docker-client.js` provides a configuration-bound Docker CLI
+adapter for future update steps. It uses `execFile` with argument arrays and
+`shell: false`; it does not accept shell command strings. Container and Volume
+targets come only from `EDC_CONTAINER_NAME` and `EDC_DATA_VOLUME`. Image
+operations accept only strict semantic-version tags under the configured
+`EDC_IMAGE_REPOSITORY`.
+
+The module exposes container inspection, normalized container configuration,
+Volume inspection, image existence checks, and a repository-bound image pull
+operation. Step 5-1 does not connect these functions to HTTP and does not call
+them during Agent startup. Tests use only mock Docker runners and test-only
+resource names. No production container, Volume, image, or database is changed.
+
+### Step 5-2 isolated Docker update test
+
+The developer-only command below is hard-bound to container
+`edc-update-test`, Volume `edc-update-test-data`, and host port `3010`. It
+refuses production names and aborts if either test resource already exists.
+It never removes test resources automatically.
+
+Before running it, authenticate Docker Desktop to `ghcr.io`, and set read-only
+GHCR credentials for version discovery without saving them in the repository:
+
+```powershell
+$env:GHCR_USERNAME="shin482"
+$env:GHCR_TOKEN="<classic-PAT-with-read-packages>"
+docker login ghcr.io -u $env:GHCR_USERNAME
+npm run update-agent:docker-test
+Remove-Item Env:GHCR_TOKEN
+```
+
+The command proceeds only when GHCR reports a semantic version newer than the
+installed `package.json` version. It pulls explicit version tags, creates the
+isolated test Volume and initial container, writes a marker inside that Volume,
+replaces only the test container, reconnects the same Volume, checks
+`http://127.0.0.1:3010/api/health`, and verifies the marker. Rollback, production
+updates, HTTP update APIs, and automatic cleanup are not part of this step.
+
 당뇨발 연구의 Part B 임상 데이터를 입력·검토·내보내기 위한 개발 중인 웹 애플리케이션입니다. EDC(Electronic Data Capture, 전자 데이터 수집) 화면에서 대상자별 e-CRF(전자 증례기록서)를 작성하고, 입력 오류 Query와 변경 이력을 확인합니다.
 
 Next.js 서버가 실행되는 장치의 SQLite 파일에 데이터를 저장합니다. 별도 DB 서버는 필요하지 않으며, 브라우저 저장소에는 최근 검색어와 일부 화면 접근 상태를 보관합니다.
@@ -61,7 +220,7 @@ pnpm dev --hostname 127.0.0.1 --port 3001
 
 ### 환경 변수
 
-관리자 화면은 `EDC_SITE`에 맞는 서버 측 비밀번호를 사용합니다. 필요하면 `ADMIN_PASSWORD_IJH`, `ADMIN_PASSWORD_EWH`, `ADMIN_PASSWORD_SCH`로 병원별 값을 재정의할 수 있습니다.
+관리자 화면은 `EDC_SITE`에 맞는 서버 측 환경변수 `ADMIN_PASSWORD_IJH`, `ADMIN_PASSWORD_EWH`, `ADMIN_PASSWORD_SCH` 중 하나를 사용합니다. 저장소에는 기본 비밀번호가 없으므로 해당 site의 값을 실행 전에 반드시 설정해야 합니다.
 
 ```dotenv
 EDC_DATA_DIR=./data
@@ -72,7 +231,7 @@ EDC_SITE=EWH · 이화의료원
 | 변수 | 기본값 | 역할 |
 | --- | --- | --- |
 | `EDC_DATA_DIR` | 실행 디렉터리의 `data` | `edc.sqlite` 저장 디렉터리 |
-| `ADMIN_PASSWORD_<SITE>` | 서버 측 site 기본값 | Rule Master·Audit Trail 화면 진입 시 확인하는 병원별 비밀번호 재정의 |
+| `ADMIN_PASSWORD_<SITE>` | 없음(필수) | Rule Master·Audit Trail 화면 진입 시 확인하는 병원별 비밀번호 |
 | `EDC_SITE` | `EWH · 이화의료원` | Sidebar와 Help에 표시하는 병원명 |
 
 `.env.local`은 Git에서 제외됩니다. 직접 `node scripts/...`로 실행하는 스크립트는 Next.js의 환경 파일 로더를 사용하지 않으므로, 데이터 경로를 바꾸려면 셸 환경 변수로 전달해야 합니다.

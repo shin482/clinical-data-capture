@@ -5,6 +5,7 @@ node_modules
 Dockerfile
 *.log
 npm-debug.log*
+release/
 data/edc.sqlite
 data/edc.sqlite.backup
 data/db-backups/

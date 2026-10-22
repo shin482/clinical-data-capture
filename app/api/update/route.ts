@@ -1,8 +1,12 @@
-import { handleUpdateRequest } from '@/lib/update-api.server.mts'
+import { isAdminRequest } from '@/lib/admin-session.server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function POST(request: Request) {
-  return handleUpdateRequest(request)
+  if (!isAdminRequest(request)) return Response.json({ error: 'UNAUTHORIZED' }, { status: 401 })
+  return Response.json({ error: 'LEGACY_UPDATE_DISABLED' }, {
+    status: 410,
+    headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
+  })
 }

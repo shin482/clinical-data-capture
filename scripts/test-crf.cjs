@@ -29,7 +29,7 @@ async function main() {
   const save = (data) => POST(new NextRequest('http://localhost/api/subjects/CRF_TEST', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ timepoint: 'T2', variableKey: 'occl', ...data }),
   }), context)
-  const open = () => db().prepare("SELECT * FROM queries WHERE status='OPEN'").all()
+  const open = () => db().prepare("SELECT * FROM queries WHERE status='OPEN' AND query_type<>'MISSING'").all()
   assert.equal((await save({ value: '8' })).status, 200)
   assert.equal(open()[0].query_type, 'CATEGORY')
   assert.equal((await save({ value: '99' })).status, 200)
@@ -38,6 +38,7 @@ async function main() {
   assert.equal(open().length, 0)
   await save({ value: null, missingReason: 'NOT_DONE' })
   const detail = await (await GET(new NextRequest('http://localhost'), context)).json()
+  assert.equal(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='CRF_TEST' AND variable_key='vdt' AND query_type='MISSING' AND status='OPEN'").get().n, 3)
   const occlusion = detail.values.find((item) => item.variableKey === 'occl')
   assert.equal(occlusion.value, null)
   assert.equal(occlusion.missingReason, 'NOT_DONE')
@@ -107,6 +108,7 @@ async function main() {
   assert.equal(open().length, 0)
   await save({ variableKey: 'vdt', value: '2026-09-17' })
   assert.equal(db().prepare("SELECT visit_date FROM visits WHERE timepoint='T2'").get().visit_date, '2026-09-17')
+  assert.equal(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='CRF_TEST' AND variable_key='vdt' AND query_type='MISSING' AND status='OPEN'").get().n, 2)
   const audits = db().prepare('SELECT * FROM audit_logs').all()
   assert.ok(audits.some((row) => row.new_value.includes('NOT_DONE')))
   const { categoryChoices, inputGuide } = require('../lib/crf-metadata.ts')
@@ -169,7 +171,7 @@ async function main() {
   const completeSubject = ensureSubject('COMPLETE_TEST')
   ensureSubject('EMPTY_TEST')
   const definitions = db().prepare('SELECT * FROM variable_definitions WHERE enabled=1 AND study_active=1').all()
-  const insertValue = db().prepare('INSERT INTO clinical_values(subject_id,visit_id,variable_key,value) VALUES(?,?,?,?)')
+  const insertValue = db().prepare('INSERT OR IGNORE INTO clinical_values(subject_id,visit_id,variable_key,value) VALUES(?,?,?,?)')
   db().transaction(() => {
     for (const visit of db().prepare('SELECT * FROM visits WHERE subject_id=?').all(completeSubject.id)) {
       for (const rule of definitions) {
@@ -187,7 +189,7 @@ async function main() {
   assert.equal(summary.complete, 1)
   assert.equal(summary.complete + summary.incomplete, summary.total)
   assert.deepEqual(summary.visits.map((v) => v.completed), [1, 1, 1])
-  db().prepare("UPDATE clinical_values SET value='' WHERE subject_id=? AND variable_key='age' AND visit_id=(SELECT id FROM visits WHERE subject_id=? AND timepoint='T2')").run(completeSubject.id, completeSubject.id)
+  db().prepare("UPDATE clinical_values SET value='' WHERE subject_id=? AND variable_key='wag' AND visit_id=(SELECT id FROM visits WHERE subject_id=? AND timepoint='T2')").run(completeSubject.id, completeSubject.id)
   subjectsData = await subjectsApi().json()
   summary = getDataEntrySummary(subjectsData)
   assert.equal(summary.complete, 0)

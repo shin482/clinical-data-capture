@@ -2,10 +2,11 @@ import { derivedValues, exportFieldValue } from '@/lib/entry-rules'
 import { getCurrentTimestamp } from '@/lib/date-time'
 import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
-import { db } from '@/lib/db'
+import { db, runDatabaseTransaction } from '@/lib/db'
 import { sortSubjectsNumerically, normalizeQueryStatus } from '@/lib/clinical-utils'
 import { appConfig } from '@/lib/app-config'
 import { getSiteCode } from '@/lib/site-config'
+import { validateQueries } from '@/lib/query-validation'
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest) {
   if (visit && !['T1', 'T2', 'T3'].includes(visit)) return NextResponse.json({ error: 'Invalid visit' }, { status: 400 })
   const subjects = sortSubjectsNumerically(db().prepare(`SELECT subject_id FROM subjects ${subjectId ? 'WHERE subject_id=?' : ''}`).all(...(subjectId ? [subjectId] : [])) as { subject_id: string }[])
   if (subjectId && !subjects.length) return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
+  validateQueries(db(), subjectId, visit as 'T1' | 'T2' | 'T3' | null, true)
   const where = [subjectId ? 's.subject_id=?' : '', visit ? 'v.timepoint=?' : ''].filter(Boolean)
   const args = [...(subjectId ? [subjectId] : []), ...(visit ? [visit] : [])]
   const valueRows = db().prepare(`SELECT s.subject_id, v.timepoint, c.variable_key, c.value, c.missing_reason FROM clinical_values c JOIN subjects s ON s.id=c.subject_id JOIN visits v ON v.id=c.visit_id JOIN variable_definitions def ON def.variable_key=c.variable_key AND def.study_active=1 AND ((v.timepoint='T1' AND def.timepoint_t1=1) OR (v.timepoint='T2' AND def.timepoint_t2=1) OR (v.timepoint='T3' AND def.timepoint_t3=1)) ${where.length ? 'WHERE ' + where.join(' AND ') : ''}`).all(...args) as { subject_id: string; timepoint: string; variable_key: string; value: string; missing_reason: string | null }[]
@@ -66,9 +68,9 @@ export async function GET(request: NextRequest) {
   const date = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replaceAll('-', '')
   const filename = `${site}_${date}.xlsx`
   const exportedAt = getCurrentTimestamp()
-  db().transaction(() => {
+  runDatabaseTransaction(() => {
     db().prepare('INSERT INTO export_history(user_name,subject_id,visit,file_name,exported_at,export_type) VALUES(?,?,?,?,?,?)').run(site, subjectId, visit, filename, exportedAt, includeQueries ? 'XLSX + Queries' : 'XLSX')
     db().prepare("INSERT INTO audit_logs(subject_id,timepoint,new_value,modified_by,modified_at,action) VALUES(?,?,?,?,?, 'EXPORT')").run(subjectId, visit, filename, site, exportedAt)
-  })()
+  })
   return new NextResponse(output, { headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="${filename}"`, 'Cache-Control': 'no-store' } })
 }

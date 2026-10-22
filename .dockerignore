@@ -17,8 +17,24 @@ data/verification.xlsx
 data/schema-backups/
 secrets/
 update-agent-build/
+update-agent/
+artifacts/
+backup-update-agent-*/
+update-agent-test-installer/
+update-agent-test-package/
+edc-integrated-installer/
+.git/
+.github/
 EDC-Update-Agent.exe
 EDC-Installer-*/
 EDC-Installer-*.zip
 EDC_사용자_가이드라인_인포그래픽.html
 *.xlsx
+
+# Exclude local template-cleaning and backup files
+data/edc-hospital-template-cleaning.sqlite
+data/edc-hospital-template-before-cleaning.sqlite
+.dockerignore-before-template-cleaning.bak
+
+# Exclude local EWH installer and update-agent files
+_check_EWH/

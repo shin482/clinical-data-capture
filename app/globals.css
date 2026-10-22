@@ -204,6 +204,23 @@ tr[tabindex]:focus-visible { outline: 2px solid #168575; outline-offset: -2px; }
 .help-update-result span { margin: 0; color: inherit; }
 .help-update-result small { margin: 0; color: inherit; }
 .help-update-result .primary-btn:disabled { cursor: not-allowed; opacity: .6; }
+.update-history .help-update-heading small { display: block; margin-top: 3px; color: #71858e; font-size: 10px; }
+.update-history-list { display: grid; gap: 6px; margin-top: 10px; }
+.update-history-row { width: 100%; display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; color: inherit; text-align: left; }
+.update-history-row:hover, .update-history-row.selected { border-color: var(--primary); background: #f2f8fa; }
+.update-history-row span:first-child { display: grid; min-width: 0; }
+.update-history-row small { color: #71858e; }
+.update-history-row .status-pill { justify-self: end; white-space: nowrap; }
+.history-completed { color: #18785f; background: #e8f5f0; }
+.history-running, .history-pending { color: #315f75; background: #edf6fa; }
+.history-blocked, .history-recovery_required, .history-unknown { color: #a34c4c; background: #fbebeb; }
+.update-history-pages { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.update-history-detail { display: grid; gap: 8px; margin-top: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.update-history-detail > div:first-child { display: flex; justify-content: space-between; gap: 12px; }
+.update-history-detail ol { display: grid; gap: 5px; margin: 0; padding-left: 22px; }
+.update-history-detail li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.update-history-detail li small { color: #71858e; }
+@media (max-width: 680px) { .update-history-row { grid-template-columns: 1fr auto; } .update-history-row > span:nth-child(2) { grid-column: 1 / -1; } .update-history-detail li { grid-template-columns: 1fr auto; } .update-history-detail li small { grid-column: 1 / -1; } }
 
 .progress-controls { display: flex; gap: 10px; padding: 0 20px 10px; align-items: center; }
 .subject-combobox { position: relative; flex: 1; min-width: 0; }

@@ -17,7 +17,7 @@ export function CrfField({ rule, cellKey, value, hasQuery, queryId, onChange, di
     : undefined
   const shared = {
     'data-crf-entry': true,
-    disabled, readOnly,
+    disabled: disabled || (readOnly && rule.dataType === 'categorical'), readOnly,
     id: cellKey, name: rule.variableKey, className: 'value-input', value,
     'aria-label': `${rule.label} ${cellKey.slice(-2)}`, 'aria-invalid': hasQuery,
     'aria-describedby': hasQuery ? queryId : undefined,

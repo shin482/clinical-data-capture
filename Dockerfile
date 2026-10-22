@@ -2,6 +2,7 @@ FROM node:22-bookworm-slim
 
 ARG APP_VERSION
 ARG SOURCE_REPOSITORY=""
+ARG SOURCE_REVISION=""
 
 WORKDIR /app
 
@@ -18,6 +19,7 @@ RUN EDC_DATA_DIR=/tmp/edc-build-data npm run build
 
 LABEL org.opencontainers.image.version=$APP_VERSION \
       org.opencontainers.image.source=$SOURCE_REPOSITORY \
+      org.opencontainers.image.revision=$SOURCE_REVISION \
       org.opencontainers.image.description="Clinical Data Capture web application"
 
 EXPOSE 3000

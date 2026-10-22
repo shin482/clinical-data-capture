@@ -37,8 +37,12 @@ async function main() {
   assert.equal((await createSubjectApi(createRequest())).status, 201)
   assert.equal((await createSubjectApi(createRequest())).status, 409)
   assert.equal(db().prepare("SELECT count(*) n FROM subjects WHERE subject_id='UNIQUE_TEST'").get().n, 1)
-  assert.equal(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='UNIQUE_TEST' AND variable_key='vdt' AND status='OPEN'").get().n, 3)
+  assert.equal(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='UNIQUE_TEST' AND query_type='MISSING' AND status='OPEN'").get().n, 0)
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='id' AND subject_id=(SELECT id FROM subjects WHERE subject_id='UNIQUE_TEST')").get().value, 'UNIQUE_TEST')
+  assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='dfu' AND subject_id=(SELECT id FROM subjects WHERE subject_id='UNIQUE_TEST')").get().value, '1')
+  await GET(new NextRequest('http://localhost/api/subjects/UNIQUE_TEST'), { params: Promise.resolve({ subjectId: 'UNIQUE_TEST' }) })
+  assert.equal(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='UNIQUE_TEST' AND variable_key='vdt' AND query_type='MISSING' AND status='OPEN'").get().n, 3)
+  assert.equal(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='UNIQUE_TEST' AND variable_key<>'vdt' AND query_type='MISSING' AND status='OPEN'").get().n, 0)
   assert.equal((await createSubjectApi(new NextRequest('http://localhost/api/subjects', { method: 'POST', body: JSON.stringify({ subjectId: 'KEEP_TEST' }) }))).status, 201)
   const deleteSubjectApi = require('../app/api/subjects/[subjectId]/route.ts').DELETE
   assert.equal((await deleteSubjectApi(new NextRequest('http://localhost/api/subjects/UNIQUE_TEST', { method: 'DELETE' }), { params: Promise.resolve({ subjectId: 'UNIQUE_TEST' }) })).status, 200)
@@ -54,6 +58,7 @@ async function main() {
   const exportedRows = async () => { const response = await exportApi(new NextRequest('http://localhost/api/export')); return XLSX.utils.sheet_to_json(XLSX.read(Buffer.from(await response.arrayBuffer())).Sheets.data, { header: 1 }) }
   const expected = ['SUBJECT_ID', ...rules.flatMap(r => ['T1','T2','T3'].filter(v => r['timepoint'+v]).map(v => r.variableKey+'_'+v.toLowerCase()))]
   assert.deepEqual((await exportedRows())[0], expected, 'Empty export includes all schema headers')
+  assert.ok(db().prepare("SELECT count(*) n FROM queries WHERE subject_id='KEEP_TEST' AND query_type='MISSING' AND status='OPEN'").get().n > 0)
   for (const key of derivedRules.find(rule => rule.target === 'snb_score').sources) await save(key, '1')
   assert.equal(await valueOf('snb_score'), '6')
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='snb_score'").get().value, '6')

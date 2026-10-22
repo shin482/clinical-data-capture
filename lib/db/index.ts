@@ -4,6 +4,9 @@ import fs from 'node:fs'
 import { getCurrentTimestamp } from '../date-time'
 import { migrateStudySchema } from './study-migration'
 import { migrateSmokingRule } from './rule-migration'
+import { smokingRuleMigrationVersion } from './rule-migration'
+import { studySchemaVersion } from '../study-schema'
+import { applicationWriterGate, runApplicationStartupMaintenance } from './writer-gate'
 
 export type VariableDefinition = {
   variableKey: string
@@ -34,11 +37,33 @@ export type VariableDefinition = {
 
 let database: Database.Database | null = null
 
-function initializeDatabase() {
+const requiredTables = ['export_history', 'users', 'subjects', 'visits', 'variable_definitions',
+  'clinical_values', 'queries', 'audit_logs', 'hospital_settings', 'schema_migrations']
+
+export function databaseMaintenanceRequired(connection: Database.Database) {
+  const tables = new Set((connection.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as { name: string }[])
+    .map((row) => row.name))
+  if (!requiredTables.every((table) => tables.has(table))) return true
+  const valueColumns = new Set((connection.prepare('PRAGMA table_info(clinical_values)').all() as { name: string }[])
+    .map((row) => row.name))
+  const queryColumns = new Set((connection.prepare('PRAGMA table_info(queries)').all() as { name: string }[])
+    .map((row) => row.name))
+  const variableColumns = new Set((connection.prepare('PRAGMA table_info(variable_definitions)').all() as { name: string }[])
+    .map((row) => row.name))
+  if (!valueColumns.has('missing_reason') || !queryColumns.has('updated_at') || !variableColumns.has('study_active')) return true
+  const versions = new Set((connection.prepare('SELECT version FROM schema_migrations').all() as { version: string }[])
+    .map((row) => row.version))
+  return !versions.has(studySchemaVersion) || !versions.has(smokingRuleMigrationVersion)
+}
+
+function initializeDatabase(): Database.Database {
   const databaseDirectory = process.env.EDC_DATA_DIR || path.join(process.cwd(), 'data')
   fs.mkdirSync(databaseDirectory, { recursive: true })
   const connection = new Database(path.join(databaseDirectory, 'edc.sqlite'), { timeout: 10000 })
   connection.pragma('busy_timeout = 10000')
+  if (!databaseMaintenanceRequired(connection)) return connection
+
+  try { return runApplicationStartupMaintenance(() => {
   connection.pragma('journal_mode = WAL')
 
   connection.exec(`
@@ -71,23 +96,40 @@ function initializeDatabase() {
   const queryColumns = connection.prepare('PRAGMA table_info(queries)').all() as { name: string }[]
   if (!queryColumns.some((column) => column.name === 'updated_at')) connection.exec('ALTER TABLE queries ADD COLUMN updated_at TEXT')
   connection.exec(`
-  INSERT INTO queries(subject_id,visit_id,timepoint,variable_key,query_type,message,current_value,detected_at,updated_at)
-  SELECT s.subject_id,v.id,v.timepoint,'vdt','MISSING','방문일을 입력해 주세요.','',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP
-  FROM subjects s JOIN visits v ON v.subject_id=s.id
-  JOIN variable_definitions d ON d.variable_key='vdt' AND d.study_active=1 AND d.enabled=1 AND d.allow_blank=0
-  WHERE COALESCE(v.visit_date,'')=''
-  ON CONFLICT(subject_id,timepoint,variable_key,query_type) DO NOTHING;
+  INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at)
+  SELECT s.id,v.id,'dfu','1','system',CURRENT_TIMESTAMP
+  FROM subjects s JOIN visits v ON v.subject_id=s.id AND v.timepoint='T1'
+  WHERE EXISTS (SELECT 1 FROM variable_definitions d WHERE d.variable_key='dfu' AND d.study_active=1)
+  ON CONFLICT(visit_id,variable_key) DO UPDATE SET value='1',missing_reason=NULL,modified_by='system',modified_at=CURRENT_TIMESTAMP
+  WHERE clinical_values.value<>'1' OR clinical_values.value IS NULL OR clinical_values.missing_reason IS NOT NULL;
   `)
   return connection
+  }) } catch (error) {
+    connection.close()
+    throw error
+  }
 }
 
-export function db() {
+export function db(): Database.Database {
   database ??= initializeDatabase()
-  return database
+  return database!
+}
+
+export function runDatabaseWrite<T>(operation: () => T): T {
+  return applicationWriterGate.runWrite(operation) as T
+}
+
+export function runDatabaseTransaction<T>(operation: () => T): T {
+  return applicationWriterGate.runTransaction(db(), operation) as T
+}
+
+export function databaseWriterGateStatus() {
+  return applicationWriterGate.status()
 }
 
 export function ensureSubject(subjectId: string) {
   const database = db()
+  return runDatabaseWrite(() => {
   const normalized = subjectId.trim()
   if (!normalized) throw new Error('Subject ID is required')
   const subject = database.prepare('INSERT INTO subjects (subject_id,created_at,updated_at) VALUES (?,?,?) ON CONFLICT(subject_id) DO UPDATE SET subject_id=excluded.subject_id RETURNING id, subject_id').get(normalized, getCurrentTimestamp(), getCurrentTimestamp()) as { id: number; subject_id: string }
@@ -96,12 +138,15 @@ export function ensureSubject(subjectId: string) {
     ;['T1', 'T2', 'T3'].forEach((timepoint) => insertVisit.run(subject.id, timepoint))
     const t1 = database.prepare("SELECT id FROM visits WHERE subject_id=? AND timepoint='T1'").get(subject.id) as { id: number }
     database.prepare("INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at) VALUES(?,?, 'id',?,'system',?) ON CONFLICT(visit_id,variable_key) DO NOTHING").run(subject.id, t1.id, normalized, getCurrentTimestamp())
+    database.prepare("INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at) VALUES(?,?, 'dfu','1','system',?) ON CONFLICT(visit_id,variable_key) DO UPDATE SET value='1',missing_reason=NULL WHERE clinical_values.value<>'1' OR clinical_values.value IS NULL OR clinical_values.missing_reason IS NOT NULL").run(subject.id, t1.id, getCurrentTimestamp())
   })()
   return subject
+  })
 }
 
 export function createSubject(subjectId: string) {
   const database = db()
+  return runDatabaseWrite(() => {
   const normalized = subjectId.trim()
   if (!normalized) throw new Error('Subject ID is required')
   try {
@@ -111,11 +156,7 @@ export function createSubject(subjectId: string) {
       const insertVisit = database.prepare('INSERT INTO visits(subject_id,timepoint) VALUES(?,?) RETURNING id')
       const visits = ['T1', 'T2', 'T3'].map((timepoint) => ({ timepoint, ...(insertVisit.get(subject.id, timepoint) as { id: number }) }))
       database.prepare("INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at) VALUES(?,?, 'id',?,'system',?)").run(subject.id, visits[0].id, normalized, timestamp)
-      const definition = database.prepare("SELECT allow_blank FROM variable_definitions WHERE variable_key='vdt' AND enabled=1 AND study_active=1").get() as { allow_blank: number } | undefined
-      if (definition && !definition.allow_blank) {
-        const insertQuery = database.prepare("INSERT INTO queries(subject_id,visit_id,timepoint,variable_key,query_type,message,current_value,detected_at,updated_at) VALUES(?,?,?,'vdt','MISSING','방문일을 입력해 주세요.','',?,?)")
-        visits.forEach((visit) => insertQuery.run(normalized, visit.id, visit.timepoint, timestamp, timestamp))
-      }
+      database.prepare("INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,modified_by,modified_at) VALUES(?,?, 'dfu','1','system',?)").run(subject.id, visits[0].id, timestamp)
       return subject
     })()
   }
@@ -123,6 +164,7 @@ export function createSubject(subjectId: string) {
     if (String(error).includes('UNIQUE constraint failed: subjects.subject_id')) throw new Error('이미 등록된 Subject 번호입니다.')
     throw error
   }
+  })
 }
 
 export function rowToVariable(row: Record<string, unknown>): VariableDefinition {

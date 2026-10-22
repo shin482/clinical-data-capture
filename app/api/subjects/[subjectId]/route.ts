@@ -1,15 +1,17 @@
 import { derivedValues, isDerivedField, isFieldActive } from '@/lib/entry-rules'
 import { getCurrentTimestamp } from '@/lib/date-time'
 import { NextRequest, NextResponse } from 'next/server'
-import { db, ensureSubject, rowToVariable } from '@/lib/db'
+import { db, ensureSubject, rowToVariable, runDatabaseTransaction } from '@/lib/db'
 import { missingReasons } from '@/lib/crf-metadata'
 import type { Visit } from '@/lib/crf-metadata'
 import { isCollectedAtVisit } from '@/lib/visit-rules'
+import { isDiagnosisStatus, validateSubjectQueries } from '@/lib/query-validation'
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ subjectId: string }> }) {
   const { subjectId } = await context.params
   const subject = db().prepare('SELECT * FROM subjects WHERE subject_id=?').get(subjectId) as { id: number } | undefined
   if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
+  validateSubjectQueries(db(), subjectId)
   const visits = db().prepare('SELECT id, timepoint, visit_date AS visitDate FROM visits WHERE subject_id=? ORDER BY timepoint').all(subject.id) as { id: number; timepoint: string; visitDate: string | null }[]
   const values = db().prepare('SELECT visit_id AS visitId, variable_key AS variableKey, value, missing_reason AS missingReason FROM clinical_values WHERE subject_id=?').all(subject.id) as { visitId: number; variableKey: string; value: string | null; missingReason: string | null }[]
   for (const visit of visits) {
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ su
   if (!variable) return NextResponse.json({ error: 'Variable is not enabled or does not exist' }, { status: 400 })
   if (variable.data_type === 'id') return NextResponse.json({ error: 'Subject ID is generated automatically and is read-only' }, { status: 400 })
   if (!isCollectedAtVisit(rowToVariable(variable), body.timepoint as Visit)) return NextResponse.json({ error: 'Variable is not collected at this visit' }, { status: 400 })
-  return db().transaction(() => {
+  return runDatabaseTransaction(() => {
   const savedAt = getCurrentTimestamp()
   const subject = ensureSubject(subjectId)
   const visit = db().prepare('SELECT id FROM visits WHERE subject_id=? AND timepoint=?').get(subject.id, body.timepoint) as { id: number }
@@ -44,6 +46,24 @@ export async function POST(request: NextRequest, context: { params: Promise<{ su
   db().prepare(`INSERT INTO clinical_values (subject_id,visit_id,variable_key,value,missing_reason,modified_by,modified_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(visit_id,variable_key) DO UPDATE SET value=excluded.value,missing_reason=excluded.missing_reason,modified_by=excluded.modified_by,modified_at=excluded.modified_at`).run(subject.id, visit.id, body.variableKey, storedValue, missingReason, body.modifiedBy || 'local-user', savedAt)
   if ((old?.value || '') !== (storedValue || '') || (old?.missing_reason || null) !== missingReason) db().prepare('INSERT INTO audit_logs(subject_id,timepoint,variable_key,previous_value,new_value,modified_by,modified_at) VALUES(?,?,?,?,?,?,?)').run(subjectId, body.timepoint, body.variableKey, JSON.stringify({ value: old?.value ?? null, missingReason: old?.missing_reason ?? null }), JSON.stringify({ value: storedValue, missingReason }), body.modifiedBy || 'local-user', savedAt)
   if (body.variableKey === 'vdt') db().prepare('UPDATE visits SET visit_date=? WHERE id=?').run(storedValue || null, visit.id)
+  const autoFilled: { variableKey: string; timepoint: Visit; value: string }[] = []
+  const propagateTo = body.variableKey === 'dth' && storedValue === '0'
+    ? ['T1', 'T2', 'T3'] as Visit[]
+    : isDiagnosisStatus(String(variable.label || '')) && storedValue === '1'
+      ? (['T1', 'T2', 'T3'] as Visit[]).filter((timepoint) => timepoint > body.timepoint && isCollectedAtVisit(rowToVariable(variable), timepoint))
+      : []
+  const autoInsert = db().prepare(`INSERT INTO clinical_values(subject_id,visit_id,variable_key,value,missing_reason,modified_by,modified_at)
+    SELECT ?,id,?,?,NULL,'system-auto-fill',? FROM visits WHERE subject_id=? AND timepoint=?
+    ON CONFLICT(visit_id,variable_key) DO NOTHING`)
+  for (const timepoint of propagateTo) {
+    if (timepoint === body.timepoint) continue
+    const propagatedValue = String(storedValue)
+    const result = autoInsert.run(subject.id, body.variableKey, propagatedValue, savedAt, subject.id, timepoint)
+    if (result.changes) {
+      autoFilled.push({ variableKey: body.variableKey, timepoint, value: propagatedValue })
+      db().prepare('INSERT INTO audit_logs(subject_id,timepoint,variable_key,previous_value,new_value,modified_by,modified_at) VALUES(?,?,?,?,?,?,?)').run(subjectId, timepoint, body.variableKey, null, propagatedValue, 'system-auto-fill', savedAt)
+    }
+  }
   const visitValues = db().prepare('SELECT variable_key,value FROM clinical_values WHERE visit_id=?').all(visit.id) as { variable_key: string; value: string | null }[]
   const valueOf = (key: string) => visitValues.find((v) => v.variable_key === key)?.value
   for (const [key, calculated] of Object.entries(derivedValues(valueOf))) {
@@ -58,7 +78,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ su
   const active = isFieldActive(rowToVariable(variable), valueOf)
   const issues: { type: string; message: string }[] = []
   const value = (storedValue || '').trim()
-  if (active && !value && !missingReason && !Boolean(variable.allow_blank)) issues.push({ type: 'MISSING', message: '필수 입력값입니다.' })
   if (value && variable.data_type === 'categorical') {
     const codes = String(variable.category_options || '').split('|').map((option) => option.split('=')[0].trim()).filter(Boolean)
     if (!codes.includes(value) && !(value === '99' && Boolean(variable.allow_unknown_99))) issues.push({ type: 'CATEGORY', message: '허용되지 않은 Category 값입니다.' })
@@ -70,26 +89,27 @@ export async function POST(request: NextRequest, context: { params: Promise<{ su
     else if (numeric < Number(variable.min_value) || (variable.max_value != null && numeric > Number(variable.max_value))) issues.push({ type: 'RANGE', message: `${variable.min_value}~${variable.max_value} 범위를 벗어났습니다.` })
   }
   db().prepare('UPDATE subjects SET updated_at=? WHERE id=?').run(savedAt, subject.id)
-  const resolve = db().prepare(`UPDATE queries SET status='RESOLVED', resolved_at=?, updated_at=?, current_value=? WHERE subject_id=? AND timepoint=? AND variable_key=? AND status='OPEN'`)
-  resolve.run(savedAt, savedAt, value, subjectId, body.timepoint, body.variableKey)
+  const resolve = db().prepare(`UPDATE queries SET status='RESOLVED', resolved_at=?, updated_at=?, current_value=? WHERE subject_id=? AND timepoint=? AND variable_key=? AND status='OPEN' AND (query_type<>'MISSING' OR ?<>'' OR ? IS NOT NULL)`)
+  resolve.run(savedAt, savedAt, value, subjectId, body.timepoint, body.variableKey, value, missingReason)
   const upsert = db().prepare(`INSERT INTO queries(subject_id,visit_id,timepoint,variable_key,query_type,message,current_value,detected_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(subject_id,timepoint,variable_key,query_type) DO UPDATE SET message=excluded.message,current_value=excluded.current_value,status='OPEN',resolved_at=NULL,updated_at=excluded.updated_at`)
   issues.forEach((issue) => upsert.run(subjectId, visit.id, body.timepoint, body.variableKey, issue.type, issue.message, value, savedAt, savedAt))
-  return NextResponse.json({ ok: true, savedAt })
-  })()
+  validateSubjectQueries(db(), subjectId)
+  return NextResponse.json({ ok: true, savedAt, autoFilled })
+  })
 }
 
 export async function DELETE(_request: NextRequest, context: { params: Promise<{ subjectId: string }> }) {
   const { subjectId } = await context.params
   const subject = db().prepare('SELECT id FROM subjects WHERE subject_id=?').get(subjectId) as { id: number } | undefined
   if (!subject) return NextResponse.json({ error: 'Subject not found' }, { status: 404 })
-  db().transaction(() => {
+  runDatabaseTransaction(() => {
     db().prepare('DELETE FROM clinical_values WHERE subject_id=?').run(subject.id)
     db().prepare('DELETE FROM queries WHERE subject_id=?').run(subjectId)
     db().prepare('DELETE FROM visits WHERE subject_id=?').run(subject.id)
     db().prepare('DELETE FROM export_history WHERE subject_id=?').run(subjectId)
     db().prepare('DELETE FROM audit_logs WHERE subject_id=?').run(subjectId)
     db().prepare('DELETE FROM subjects WHERE id=?').run(subject.id)
-  })()
+  })
   return NextResponse.json({ ok: true })
 }
 
@@ -107,14 +127,14 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ s
   if (nextSubjectId === subjectId) return NextResponse.json({ ok: true, subjectId })
 
   const modifiedAt = getCurrentTimestamp()
-  db().transaction(() => {
+  runDatabaseTransaction(() => {
     db().prepare('UPDATE subjects SET subject_id=?, updated_at=? WHERE id=?').run(nextSubjectId, modifiedAt, subject.id)
     db().prepare('UPDATE queries SET subject_id=? WHERE subject_id=?').run(nextSubjectId, subjectId)
     db().prepare('UPDATE audit_logs SET subject_id=? WHERE subject_id=?').run(nextSubjectId, subjectId)
     db().prepare('UPDATE export_history SET subject_id=? WHERE subject_id=?').run(nextSubjectId, subjectId)
     db().prepare("UPDATE clinical_values SET value=?, modified_by='system', modified_at=? WHERE subject_id=? AND variable_key='id'").run(nextSubjectId, modifiedAt, subject.id)
     db().prepare("INSERT INTO audit_logs(subject_id,timepoint,variable_key,previous_value,new_value,modified_by,modified_at,action) VALUES(?,NULL,'id',?,?, 'system',?,'UPDATE')").run(nextSubjectId, subjectId, nextSubjectId, modifiedAt)
-  })()
+  })
 
   return NextResponse.json({ ok: true, subjectId: nextSubjectId })
 }

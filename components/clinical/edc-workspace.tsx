@@ -226,6 +226,7 @@ export default function EdcWorkspace() {
       setVisits(data.visits)
       setLastSaved(formatDateTime(data.savedAt))
       setDetailLoading(false)
+      await refreshQueries()
     } catch {
       notify('Subject 데이터를 불러오지 못했습니다.')
     }
@@ -269,7 +270,16 @@ export default function EdcWorkspace() {
             pendingSaves.current.delete(timerKey)
             failedSaves.current.delete(timerKey)
           }
-          if (selectedSubject.current === targetSubject) setLastSaved(formatDateTime((await response.json()).savedAt))
+          const result = await response.json() as { savedAt: string; autoFilled?: { variableKey: string; timepoint: Visit; value: string }[] }
+          if (selectedSubject.current === targetSubject) {
+            setLastSaved(formatDateTime(result.savedAt))
+            if (result.autoFilled?.length) setValues((current) => ({
+              ...current,
+              ...Object.fromEntries(result.autoFilled!
+                .filter((item) => !drafts.current.has(`${targetSubject}-${item.variableKey}-${item.timepoint}`))
+                .map((item) => [`${item.variableKey}-${item.timepoint}`, item.value])),
+            }))
+          }
         } catch {
           if (pendingSaves.current.get(timerKey) === revision) {
             pendingSaves.current.delete(timerKey)
@@ -763,7 +773,12 @@ function Detail({
   const shownVisits = allVisits.filter((visit) => !visitFilter || visit === visitFilter)
   const referencesFor = (rule: Rule) => emrReferences(rule)
   const emrGroups = emrFilterOrder
-  const shownRules = rules.filter((rule) => !emrFilter || referencesFor(rule).includes(emrFilter))
+  const shownRules = rules
+    .filter((rule) => !emrFilter || referencesFor(rule).includes(emrFilter))
+    .sort((a, b) => {
+      const priority = (key: string) => key === 'id' ? 0 : key === 'vdt' ? 1 : 2
+      return priority(a.variableKey) - priority(b.variableKey)
+    })
   useEffect(() => {
     if (loading || !target || target.subject_id !== subject) return
     const id = `${target.variable_key}-${target.timepoint}`
@@ -1213,12 +1228,16 @@ function Export({ subjects }: { subjects: Subject[] }) {
     setBusy(true)
     setError('')
     try {
-      const response = await fetch('/api/queries', { cache: 'no-store' })
+      const validation = new URLSearchParams({ validate: '1' })
+      if (selectedSubject) validation.set('subject', selectedSubject)
+      if (selectedVisit !== 'ALL') validation.set('visit', selectedVisit)
+      const response = await fetch(`/api/queries?${validation.toString()}`, { cache: 'no-store' })
       if (!response.ok) throw new Error('Query status could not be loaded')
       const queries = await response.json() as QueryRow[]
-      const scopedQueries = selectedSubject
-        ? queries.filter((query) => query.subject_id === selectedSubject)
-        : queries
+      const scopedQueries = queries.filter((query) =>
+        (!selectedSubject || query.subject_id === selectedSubject) &&
+        (selectedVisit === 'ALL' || query.timepoint === selectedVisit),
+      )
       const openQueries = getOpenQueryCount(scopedQueries)
       if (openQueries > 0) {
         setOpenQueryWarning(openQueries)

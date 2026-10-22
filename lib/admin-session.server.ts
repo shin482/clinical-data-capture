@@ -2,12 +2,15 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { appConfig } from '@/lib/app-config'
 import { ADMIN_AUTH_TTL_MS } from '@/lib/admin-auth-config'
 import { getSiteCode } from '@/lib/site-config'
+import { readConfiguredSecret } from '@/lib/secret-file.server.ts'
 
 export const ADMIN_SESSION_COOKIE = 'edc_admin_session'
 
 export function configuredAdminPassword() {
   const site = getSiteCode(process.env.EDC_SITE || appConfig.site)
-  const password = process.env[`ADMIN_PASSWORD_${site}`]?.trim() || null
+  const password = readConfiguredSecret(process.env, `ADMIN_PASSWORD_${site}`, {
+    allowedRoot: process.env.EDC_SECRET_ROOT,
+  })
   return { site, password }
 }
 

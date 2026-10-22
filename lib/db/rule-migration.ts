@@ -1,8 +1,10 @@
 import type Database from 'better-sqlite3'
 import { studyVariables } from '../study-schema'
 
+export const smokingRuleMigrationVersion = 'smoking-exclude-99-v1'
+
 export function migrateSmokingRule(database: Database.Database) {
-  const version = 'smoking-exclude-99-v1'
+  const version = smokingRuleMigrationVersion
   if (database.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(version)) return
   database.transaction(() => {
     for (const rule of studyVariables.filter((rule) => rule.parents === 'smk')) {

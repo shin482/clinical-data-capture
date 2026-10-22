@@ -7,7 +7,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } },
 ).outputText, filename)
 
-const { displayVersion, parseUpdateStatus } = require('../lib/update-status.ts')
+const { displayVersion, parseCoordinatorJobStatus, parseUpdateStatus } = require('../lib/update-status.ts')
 
 assert.deepEqual(parseUpdateStatus({
   currentVersion: '1.0.0',
@@ -24,10 +24,14 @@ assert.deepEqual(parseUpdateStatus({
 assert.equal(parseUpdateStatus({ error: 'Update Agent unavailable' }), null)
 assert.equal(displayVersion('1.1.0'), 'v1.1.0')
 assert.equal(displayVersion('v1.0.0'), 'v1.0.0')
+assert.deepEqual(parseCoordinatorJobStatus({
+  jobId: 'job-20261021-0000000001', requestId: 'request-20261021-00000001', state: 'COMPLETED',
+}), { jobId: 'job-20261021-0000000001', requestId: 'request-20261021-00000001', state: 'COMPLETED' })
+assert.equal(parseCoordinatorJobStatus({ jobId: 'job', requestId: 'request', state: 'CORRUPT' }), null)
 
 const component = fs.readFileSync('components/clinical/help-modal.tsx', 'utf8')
 assert.match(component, /fetch\('\/api\/update\/status'/)
-assert.match(component, /fetch\('\/api\/update'/)
+assert.match(component, /fetch\('\/api\/update\/coordinator'/)
 assert.doesNotMatch(component, /127\.0\.0\.1:3210/)
 assert.doesNotMatch(component, /UPDATE_AGENT_AUTH_TOKEN|GHCR_TOKEN/)
 assert.match(component, /method:\s*['"]POST['"]/)
@@ -36,6 +40,9 @@ assert.match(component, /새로운 버전이 있습니다:/)
 assert.match(component, /업데이트 정보를 확인할 수 없습니다\./)
 assert.match(component, /updateRequestInFlight\.current/)
 assert.match(component, /disabled=\{updateState\.kind === 'checking' \|\| updateState\.kind === 'updating'\}/)
+assert.match(component, /status\.state === 'COMPLETED'/)
+assert.match(component, /sessionStorage\.setItem\(coordinatorSessionKey/)
+assert.doesNotMatch(component, /catch\s*\{[^}]*kind:\s*'success'/s)
 assert.match(component, /업데이트를 시작했습니다\./)
 assert.match(component, /페이지를 새로고침하거나 다시 접속해 주세요\./)
 

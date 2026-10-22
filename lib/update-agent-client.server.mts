@@ -1,4 +1,5 @@
 import { clearTimeout, setTimeout } from 'node:timers'
+import { readConfiguredSecret } from './secret-file.server.ts'
 
 export type UpdateAgentStatus = {
   installedVersion: string
@@ -52,7 +53,10 @@ export class UpdateAlreadyInProgressError extends Error {
 
 function loadConnection(environment: NodeJS.ProcessEnv) {
   const rawUrl = environment.UPDATE_AGENT_URL?.trim()
-  const authToken = environment.UPDATE_AGENT_AUTH_TOKEN?.trim()
+  const authToken = readConfiguredSecret(environment, 'UPDATE_AGENT_AUTH_TOKEN', {
+    minimumLength: 32,
+    allowedRoot: environment.EDC_SECRET_ROOT,
+  })
   if (!rawUrl || !authToken || authToken.length < 32) throw new UpdateAgentUnavailableError()
 
   let baseUrl: URL
@@ -90,6 +94,34 @@ async function requestAgent(path: '/status' | '/update/check', options: ClientOp
     if (!response.ok) throw new UpdateAgentUnavailableError()
     return await response.json() as unknown
   } catch {
+    throw new UpdateAgentUnavailableError()
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export type CoordinatorResponse = Record<string, unknown>
+
+export async function requestCoordinator(
+  path: string,
+  init: { method?: 'GET' | 'POST'; body?: unknown } = {},
+  options: ClientOptions = {},
+): Promise<{ status: number; body: CoordinatorResponse }> {
+  if (!/^\/v1\/coordinator\/[A-Za-z0-9/_-]+(?:\?(?:page|pageSize)=\d+(?:&(?:page|pageSize)=\d+)*)?$/.test(path)) throw new UpdateAgentUnavailableError()
+  const { baseUrl, authToken } = loadConnection(options.environment || process.env)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 5000)
+  try {
+    const response = await (options.fetchImpl || fetch)(new URL(path, baseUrl), {
+      method: init.method || 'GET', cache: 'no-store', signal: controller.signal,
+      headers: { Authorization: `Bearer ${authToken}`, ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    })
+    const body = await response.json().catch(() => null)
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new UpdateAgentUnavailableError()
+    return { status: response.status, body: body as CoordinatorResponse }
+  } catch (error) {
+    if (error instanceof UpdateAgentUnavailableError) throw error
     throw new UpdateAgentUnavailableError()
   } finally {
     clearTimeout(timeout)

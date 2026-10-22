@@ -25,3 +25,21 @@ export function parseUpdateStatus(value: unknown): UpdateStatus | null {
 export function displayVersion(version: string) {
   return version.startsWith('v') ? version : `v${version}`
 }
+
+export type CoordinatorJobStatus = {
+  jobId: string
+  requestId: string
+  state: 'PENDING' | 'RUNNING' | 'BLOCKED' | 'RECOVERY_REQUIRED' | 'FAILED_SAFE' | 'COMPLETED' | 'CANCELLED' | 'UNKNOWN'
+}
+
+const coordinatorStates = new Set<CoordinatorJobStatus['state']>([
+  'PENDING', 'RUNNING', 'BLOCKED', 'RECOVERY_REQUIRED', 'FAILED_SAFE', 'COMPLETED', 'CANCELLED', 'UNKNOWN',
+])
+
+export function parseCoordinatorJobStatus(value: unknown): CoordinatorJobStatus | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const candidate = value as Record<string, unknown>
+  if (typeof candidate.jobId !== 'string' || typeof candidate.requestId !== 'string'
+    || typeof candidate.state !== 'string' || !coordinatorStates.has(candidate.state as CoordinatorJobStatus['state'])) return null
+  return candidate as CoordinatorJobStatus
+}

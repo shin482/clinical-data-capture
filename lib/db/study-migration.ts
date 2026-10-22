@@ -27,6 +27,8 @@ export function migrateStudySchema(database: Database.Database) {
       }
       insert.run(params)
     }
+    database.prepare("UPDATE variable_definitions SET category_options='0=never smoker|1=past smoker|2=current smoker|99=unknown',allow_unknown_99=1 WHERE variable_key='smk'").run()
+    database.prepare("UPDATE variable_definitions SET category_options='1=yes',allow_unknown_99=0 WHERE variable_key='dfu'").run()
     for (const [oldKey, newKey] of Object.entries(legacyVariableAliases)) {
       const conflicts = database.prepare('SELECT 1 FROM clinical_values a JOIN clinical_values b ON a.visit_id=b.visit_id WHERE a.variable_key=? AND b.variable_key=?').get(oldKey, newKey)
       const queryConflicts = database.prepare('SELECT 1 FROM queries a JOIN queries b ON a.subject_id=b.subject_id AND a.timepoint=b.timepoint AND a.query_type=b.query_type WHERE a.variable_key=? AND b.variable_key=?').get(oldKey, newKey)

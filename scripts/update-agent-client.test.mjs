@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
   getUpdateAgentStatus,
   getUpdateCheck,
@@ -14,6 +17,21 @@ const environment = {
   UPDATE_AGENT_URL: 'http://127.0.0.1:3210',
   UPDATE_AGENT_AUTH_TOKEN: authToken,
 }
+
+test('EDC update client reads its token from an allowlisted secret file', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'edc-web-secret-test-'))
+  const file = path.join(root, 'agent-token')
+  fs.writeFileSync(file, authToken, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+  let authorization
+  await getUpdateCheck({
+    environment: { UPDATE_AGENT_URL: environment.UPDATE_AGENT_URL, EDC_SECRET_ROOT: root, UPDATE_AGENT_AUTH_TOKEN_FILE: file },
+    fetchImpl: async (_url, options) => {
+      authorization = options?.headers?.Authorization
+      return Response.json({ currentVersion: '1.0.0', latestVersion: '1.0.0', updateAvailable: false })
+    },
+  })
+  assert.equal(authorization, `Bearer ${authToken}`)
+})
 
 test('EDC update client sends bearer auth and returns only update fields', async () => {
   let request

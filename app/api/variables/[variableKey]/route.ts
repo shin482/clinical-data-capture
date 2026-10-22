@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { db, rowToVariable } from '@/lib/db'
+import { db, rowToVariable, runDatabaseWrite } from '@/lib/db'
 import { studyVariables } from '@/lib/study-schema'
 import { updateStudyVariableJson } from '@/lib/rule-sync'
 import { isAdminRequest } from '@/lib/admin-session.server'
@@ -22,7 +22,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ varia
   const updates = Object.entries(fields).filter(([, value]) => value !== undefined)
   if (nextKey !== variableKey) updates.push(['variable_key', nextKey])
   const before = current
-  try {
+  return runDatabaseWrite(() => { try {
     db().prepare(`UPDATE variable_definitions SET ${updates.map(([key]) => `${key}=@${key}`).join(', ')} WHERE variable_key=@whereKey`).run(Object.fromEntries([...updates, ['whereKey', variableKey]]))
     const updatedRow = db().prepare('SELECT * FROM variable_definitions WHERE variable_key=?').get(nextKey) as Record<string, unknown>
     const updated = rowToVariable(updatedRow)
@@ -32,5 +32,5 @@ export async function PATCH(request: Request, context: { params: Promise<{ varia
     const columns = Object.keys(before)
     db().prepare(`UPDATE variable_definitions SET ${columns.map((key) => `${key}=@${key}`).join(', ')} WHERE id=@id`).run(before)
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Rule synchronization failed' }, { status: 500 })
-  }
+  } })
 }

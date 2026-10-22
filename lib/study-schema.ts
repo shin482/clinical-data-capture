@@ -16,4 +16,4 @@ export const studyVariables: VariableDefinition[] = definitions.map((definition)
 export const studyVariableKeys = new Set(studyVariables.map((variable) => variable.variableKey))
 export const legacyVariableAliases: Record<string, string> = { pvd: 'pad', amp_lt: 'amp', ampdt_lt: 'amp_dt' }
 export const canonicalVariableKey = (key: string) => legacyVariableAliases[key] || key
-export const studySchemaVersion = `part-b-final-71-v5-${configuredSite.toLowerCase()}`
+export const studySchemaVersion = `part-b-final-71-v6-${configuredSite.toLowerCase()}`

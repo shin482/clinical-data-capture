@@ -47,8 +47,9 @@ async function main() {
   const variables = await variablesApi.GET(new NextRequest('http://localhost/api/variables')).json()
   assert.equal(variables.length, 71)
   assert.deepEqual(compare(source, variables), { missing: [], unexpected: [], mismatches: [] })
-  assert.equal(db().prepare('SELECT count(*) AS n FROM clinical_values').get().n, 6)
+  assert.equal(db().prepare('SELECT count(*) AS n FROM clinical_values').get().n, 7)
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='id'").get().value, 'Subject 2')
+  assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='dfu'").get().value, '1')
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='pad'").get().value, '1')
   assert.equal(db().prepare("SELECT value FROM clinical_values WHERE variable_key='amp'").get().value, '1')
   assert.equal(db().prepare("SELECT count(*) AS n FROM clinical_values WHERE variable_key='amp_lt'").get().n, 0)
@@ -61,7 +62,7 @@ async function main() {
   migrateStudySchema(db())
   assert.equal(db().prepare('SELECT count(*) AS n FROM schema_migration_archive').get().n, archivedCount, 'Migration is idempotent')
 
-  const queries = await require('../app/api/queries/route.ts').GET().json()
+  const queries = await require('../app/api/queries/route.ts').GET(new NextRequest('http://localhost/api/queries')).json()
   const { queryHistoryForm } = require('../lib/query-history.ts')
   for (const key of ['pad', 'amp', 'amp_dt']) {
     const query = queries.find((row) => row.variable_key === key)

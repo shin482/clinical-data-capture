@@ -1,0 +1,84 @@
+name: Build EDC web test image (no publish)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      IMAGE_REPOSITORY: ghcr.io/shin482/clinical-data-capture-web-app
+    steps:
+      - name: Check out the selected immutable commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Define immutable test identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${GITHUB_SHA::12}"
+          tag="secret-file-test-${short_sha}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "ref=${IMAGE_REPOSITORY}:${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify file-secret sources are present
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f lib/secret-file.server.ts
+          grep -q 'readConfiguredSecret.*ADMIN_PASSWORD_' lib/admin-session.server.ts
+          grep -q '\`${name}_FILE\`' lib/secret-file.server.ts
+          grep -q 'UPDATE_AGENT_AUTH_TOKEN' lib/update-agent-client.server.mts
+
+      - name: Build linux amd64 OCI artifact without registry push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: ${{ steps.identity.outputs.ref }}
+          outputs: type=oci,dest=${{ runner.temp }}/edc-web-test-image.oci.tar
+          build-args: |
+            APP_VERSION=${{ steps.identity.outputs.tag }}
+            SOURCE_REPOSITORY=${{ github.server_url }}/${{ github.repository }}
+            SOURCE_REVISION=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+          no-cache: true
+
+      - name: Record artifact checksums and build result
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum "${RUNNER_TEMP}/edc-web-test-image.oci.tar" | tee "${RUNNER_TEMP}/edc-web-test-image.oci.tar.sha256"
+          printf '%s\n' \
+            "source_revision=${GITHUB_SHA}" \
+            "test_tag=${{ steps.identity.outputs.ref }}" \
+            "buildx_digest=${{ steps.build.outputs.digest }}" \
+            "platform=linux/amd64" \
+            "registry_published=false" \
+            > "${RUNNER_TEMP}/edc-web-test-image-build.txt"
+
+      - name: Upload OCI image, SBOM/provenance attestations and record
+        uses: actions/upload-artifact@v4
+        with:
+          name: edc-web-test-image-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/edc-web-test-image.oci.tar
+            ${{ runner.temp }}/edc-web-test-image.oci.tar.sha256
+            ${{ runner.temp }}/edc-web-test-image-build.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
